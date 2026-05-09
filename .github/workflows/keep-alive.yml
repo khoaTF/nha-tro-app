@@ -11,8 +11,6 @@ jobs:
     steps:
       - name: Ping Supabase API
         run: |
-          # Gửi request tới REST API của Supabase để giữ cho dự án không bị tạm dừng (paused)
-          # Lưu ý: Thay "your_table_name" bằng tên một bảng bất kỳ trong database của bạn (VD: users, tenants, v.v.)
-          curl -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/your_table_name?select=*&limit=1" \
-          -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-          -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
+          curl -X GET "https://gsbuxzftnpkuizaujjiv.supabase.co/rest/v1/" \
+          -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" \
+          -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc"
