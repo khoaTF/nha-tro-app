@@ -1,0 +1,13 @@
+{
+    "appId": "com.nhatro.app",
+    "appName": "Quản Lý Nhà Trọ",
+    "webDir": "www",
+    "server": {
+        "androidScheme": "https"
+    },
+    "android": {
+        "backgroundColor": "#0f172a",
+        "allowMixedContent": true,
+        "webContentsDebuggingEnabled": true
+    }
+}

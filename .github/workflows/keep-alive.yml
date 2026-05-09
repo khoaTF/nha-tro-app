@@ -1,0 +1,18 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *' # Chạy tự động lúc 00:00 mỗi 3 ngày một lần
+  workflow_dispatch: # Cho phép bạn bấm chạy thủ công từ tab Actions trên Github
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase API
+        run: |
+          # Gửi request tới REST API của Supabase để giữ cho dự án không bị tạm dừng (paused)
+          # Lưu ý: Thay "your_table_name" bằng tên một bảng bất kỳ trong database của bạn (VD: users, tenants, v.v.)
+          curl -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/your_table_name?select=*&limit=1" \
+          -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"

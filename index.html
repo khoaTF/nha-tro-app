@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Quản Lý Nhà Trọ</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-512.png">
+    <link rel="icon" type="image/png" href="icon-512.png">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <!-- SETUP SCREEN -->
+    <div id="setup-screen" class="setup-overlay hidden">
+        <div class="setup-card">
+            <h2>🔗 Kết Nối Database</h2>
+            <p>Nhập thông tin Supabase project của bạn</p>
+            <div class="input-group">
+                <label>Project URL</label>
+                <input type="url" id="setup-url" placeholder="https://xxx.supabase.co">
+            </div>
+            <div class="input-group">
+                <label>Anon Key</label>
+                <input type="text" id="setup-key" placeholder="eyJhbGciOi...">
+            </div>
+            <button id="setup-connect-btn" class="primary-btn">🚀 Kết Nối</button>
+            <p id="setup-error" class="setup-error"></p>
+        </div>
+    </div>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p>Đang tải dữ liệu...</p>
+    </div>
+
+    <div class="app-container">
+        <header class="app-header">
+            <h1>Quản Lý Nhà Trọ</h1>
+        </header>
+
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="entry">📝 Nhập liệu</button>
+            <button class="tab-btn" data-tab="history">📊 Lịch sử</button>
+            <button class="tab-btn" data-tab="settings">⚙️ Cài đặt</button>
+        </nav>
+
+        <!-- TAB 1: ENTRY -->
+        <section id="tab-entry" class="tab-content active">
+            <div class="period-selector glass-card">
+                <h3>Kỳ thu tiền</h3>
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Từ ngày</label>
+                        <input type="text" id="startDate" placeholder="28/2/2026">
+                    </div>
+                    <div class="input-group">
+                        <label>Đến ngày</label>
+                        <input type="text" id="endDate" placeholder="30/3/2026">
+                    </div>
+                </div>
+            </div>
+            <div id="room-cards-container"></div>
+            <button id="save-period-btn" class="primary-btn">💾 Lưu Kỳ Này</button>
+        </section>
+
+        <!-- TAB 2: HISTORY -->
+        <section id="tab-history" class="tab-content">
+            <div id="history-container"></div>
+        </section>
+
+        <!-- TAB 3: SETTINGS -->
+        <section id="tab-settings" class="tab-content">
+            <div class="glass-card">
+                <h3>Danh sách phòng</h3>
+                <div id="room-list"></div>
+                <div class="add-room-row">
+                    <input type="text" id="new-room-name" placeholder="Tên phòng mới...">
+                    <input type="number" id="new-room-fee" placeholder="Tiền phòng">
+                    <button id="add-room-btn" class="small-btn">+ Thêm</button>
+                </div>
+            </div>
+            <div class="glass-card">
+                <h3>Đơn giá</h3>
+                <div class="input-group"><label>Điện (vnđ/Kw)</label><input type="number" id="set-elecPrice" value="3000"></div>
+                <div class="input-group"><label>Nước (vnđ/m³)</label><input type="number" id="set-waterPrice" value="11000"></div>
+                <div class="input-group"><label>Nước trên 10m³ (vnđ/m³)</label><input type="number" id="set-waterPriceOver" value="12000"></div>
+                <div class="input-group"><label>Tiền rác (vnđ/tháng)</label><input type="number" id="set-garbageFee" value="10000"></div>
+                <button id="save-settings-btn" class="primary-btn">💾 Lưu Cài Đặt</button>
+            </div>
+            <div class="glass-card">
+                <h3>Kết nối</h3>
+                <p style="font-size:.8rem;color:var(--text2);margin-bottom:10px" id="connection-info">Chưa kết nối</p>
+                <button id="disconnect-btn" class="small-btn" style="background:var(--danger)">🔌 Đổi Kết Nối</button>
+            </div>
+        </section>
+
+        <!-- RECEIPT MODAL -->
+        <div id="receipt-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Phiếu Thu Tiền Trọ</h2>
+                    <button id="close-modal" class="close-btn">&times;</button>
+                </div>
+                <div class="receipt-wrapper" id="receipt-capture-area"></div>
+                <div class="modal-actions">
+                    <button id="download-btn" class="secondary-btn">📸 Lưu Ảnh</button>
+                    <button id="share-btn" class="primary-btn">📤 Gửi Zalo</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOAST -->
+        <div id="toast" class="toast hidden"></div>
+    </div>
+    <script src="app.js?v=4"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(e => console.log('SW error:', e));
+        }
+    </script>
+</body>
+</html>
