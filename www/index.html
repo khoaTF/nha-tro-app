@@ -14,6 +14,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Tesseract OCR Offline -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
     <!-- SETUP SCREEN -->
@@ -37,7 +39,7 @@
     <!-- LOADING OVERLAY -->
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
-        <p>Đang tải dữ liệu...</p>
+        <p id="loading-text">Đang tải dữ liệu...</p>
     </div>
 
     <div class="app-container">
@@ -72,11 +74,17 @@
 
         <!-- TAB 2: HISTORY -->
         <section id="tab-history" class="tab-content">
+            <div class="history-toolbar">
+                <button id="toggle-comparison-btn" class="toolbar-btn">📈 Đối Chiếu Tiêu Thụ</button>
+                <button id="export-history-csv-btn" class="toolbar-btn">📥 Xuất Excel (CSV)</button>
+            </div>
+            <div id="comparison-container" class="glass-card hidden"></div>
             <div id="history-container"></div>
         </section>
 
         <!-- TAB 3: SETTINGS -->
         <section id="tab-settings" class="tab-content">
+            <!-- DANH SÁCH PHÒNG -->
             <div class="glass-card">
                 <h3>Danh sách phòng</h3>
                 <div id="room-list"></div>
@@ -86,6 +94,8 @@
                     <button id="add-room-btn" class="small-btn">+ Thêm</button>
                 </div>
             </div>
+
+            <!-- ĐƠN GIÁ -->
             <div class="glass-card">
                 <h3>Đơn giá</h3>
                 <div class="input-group"><label>Điện (vnđ/Kw)</label><input type="number" id="set-elecPrice" value="3000"></div>
@@ -94,8 +104,35 @@
                 <div class="input-group"><label>Tiền rác (vnđ/tháng)</label><input type="number" id="set-garbageFee" value="10000"></div>
                 <button id="save-settings-btn" class="primary-btn">💾 Lưu Cài Đặt</button>
             </div>
+
+            <!-- SAO LƯU & ĐỐI CHIẾU DỮ LIỆU HÀNG THÁNG -->
             <div class="glass-card">
-                <h3>Kết nối</h3>
+                <h3>📦 Sao Lưu & Phòng Ngừa Mất Dữ Liệu</h3>
+                <p class="section-desc">Dữ liệu được tự động lưu bản sao dự phòng trên máy mỗi khi bấm Lưu kỳ mới. Bạn cũng có thể tải về file backup để đối chiếu hoặc khôi phục.</p>
+                <div class="backup-actions">
+                    <button id="backup-download-btn" class="small-btn" style="flex:1">📥 Tải Bản Sao Lưu (JSON)</button>
+                    <button id="backup-restore-btn" class="small-btn secondary" style="flex:1">📤 Khôi Phục Từ File</button>
+                    <input type="file" id="restore-file-input" accept=".json" class="hidden">
+                </div>
+                <div class="backup-status-tag" id="backup-status-tag">
+                    <span>🕒 Snapshot tự động: Đang kích hoạt</span>
+                </div>
+            </div>
+
+            <!-- NHẬN DIỆN AI GEMINI VISION -->
+            <div class="glass-card">
+                <h3>🤖 Cấu Hình Nhận Diện Số (OCR)</h3>
+                <p class="section-desc">Mặc định dùng <b>Tesseract OCR (Offline)</b>. Nhập <b>Google Gemini API Key</b> (miễn phí) để AI nhận diện chuẩn 100% và tự động bỏ qua số đỏ thập phân.</p>
+                <div class="input-group">
+                    <label>Gemini API Key (Tùy chọn)</label>
+                    <input type="password" id="set-gemini-key" placeholder="AIzaSy...">
+                </div>
+                <button id="save-gemini-key-btn" class="small-btn">💾 Lưu Cấu Hình OCR</button>
+            </div>
+
+            <!-- KẾT NỐI -->
+            <div class="glass-card">
+                <h3>Kết nối Database</h3>
                 <p style="font-size:.8rem;color:var(--text2);margin-bottom:10px" id="connection-info">Chưa kết nối</p>
                 <button id="disconnect-btn" class="small-btn" style="background:var(--danger)">🔌 Đổi Kết Nối</button>
             </div>
@@ -116,10 +153,52 @@
             </div>
         </div>
 
+        <!-- OCR SCANNER MODAL -->
+        <div id="ocr-modal" class="modal hidden">
+            <div class="modal-content ocr-modal-content">
+                <div class="modal-header">
+                    <h2 id="ocr-modal-title">📸 Quét Chỉ Số</h2>
+                    <button id="close-ocr-modal" class="close-btn">&times;</button>
+                </div>
+                
+                <div class="ocr-viewport" id="ocr-viewport">
+                    <video id="ocr-video" playsinline autoplay muted class="hidden"></video>
+                    <img id="ocr-preview" class="hidden" alt="Ảnh chụp công tơ">
+                    <div id="ocr-placeholder" class="ocr-placeholder">
+                        <span class="ocr-ph-icon">⚡</span>
+                        <p>Bấm chụp hoặc chọn ảnh công tơ</p>
+                    </div>
+                    <div id="ocr-guide" class="ocr-guide hidden">
+                        <div class="ocr-scan-bar"></div>
+                        <span class="ocr-guide-hint">Căn dãy số hiển thị vào khung</span>
+                    </div>
+                </div>
+
+                <div class="ocr-status-bar" id="ocr-status-bar">
+                    <span id="ocr-engine-tag" class="ocr-tag offline">⚙️ Tesseract OCR (Offline)</span>
+                    <span id="ocr-msg" class="ocr-msg"></span>
+                </div>
+
+                <div class="ocr-actions">
+                    <input type="file" id="ocr-file-input" accept="image/*" capture="environment" class="hidden">
+                    <button id="ocr-camera-trigger" class="secondary-btn" style="flex:1">📷 Mở Camera / Chụp</button>
+                    <button id="ocr-album-trigger" class="small-btn" style="background:var(--bg-input)">🖼️ Album</button>
+                </div>
+
+                <div id="ocr-result-area" class="ocr-result-area hidden">
+                    <div class="input-group">
+                        <label>Số nhận diện được (kiểm tra lại trước khi điền):</label>
+                        <input type="number" id="ocr-scanned-value" style="font-size:1.35rem;font-weight:700;color:var(--accent);text-align:center;letter-spacing:2px">
+                    </div>
+                    <button id="ocr-confirm-btn" class="primary-btn">✅ Điền Vào Ô Này</button>
+                </div>
+            </div>
+        </div>
+
         <!-- TOAST -->
         <div id="toast" class="toast hidden"></div>
     </div>
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(e => console.log('SW error:', e));

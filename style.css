@@ -156,3 +156,50 @@ input[type=number]{-moz-appearance:textfield}
 
 /* === DISABLED BTN === */
 .primary-btn:disabled,.secondary-btn:disabled,.small-btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+
+/* === OCR & CAMERA STYLES === */
+.input-with-cam{position:relative;display:flex;align-items:center;width:100%;min-width:0}
+.input-with-cam input{width:100%!important;padding-right:34px!important}
+.cam-btn{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:28px;height:28px;background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.35);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.9rem;color:var(--text);transition:all .2s;padding:0;z-index:2}
+.cam-btn:hover{background:var(--primary);color:#fff;border-color:var(--primary-light)}
+.cam-btn:active{transform:translateY(-50%) scale(0.9)}
+
+.ocr-modal-content{max-height:95vh;background:#0f172a;border-top:1px solid var(--border)}
+.ocr-viewport{position:relative;width:100%;height:240px;background:#020617;border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:12px;border:1px solid var(--border)}
+.ocr-viewport video,.ocr-viewport img{width:100%;height:100%;object-fit:contain}
+.ocr-placeholder{text-align:center;color:var(--text3);padding:20px}
+.ocr-ph-icon{font-size:2.8rem;display:block;margin-bottom:8px;opacity:.7}
+.ocr-placeholder p{font-size:.82rem;color:var(--text2)}
+
+.ocr-guide{position:absolute;inset:20px 15px;border:2px dashed var(--accent);border-radius:10px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,0.5)}
+.ocr-scan-bar{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:scan 1.8s infinite ease-in-out}
+@keyframes scan{0%{top:5%}50%{top:90%}100%{top:5%}}
+.ocr-guide-hint{position:absolute;bottom:-24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;font-size:.7rem;padding:2px 8px;border-radius:4px;white-space:nowrap}
+
+.ocr-status-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:.76rem;gap:8px}
+.ocr-tag{display:inline-flex;align-items:center;padding:4px 10px;border-radius:20px;font-weight:600}
+.ocr-tag.offline{background:rgba(148,163,184,0.15);color:var(--text2)}
+.ocr-tag.ai{background:rgba(34,197,94,0.18);color:var(--success);border:1px solid rgba(34,197,94,0.3)}
+.ocr-msg{color:var(--accent);font-weight:500;text-align:right}
+
+.ocr-actions{display:flex;gap:8px;margin-bottom:14px}
+.ocr-result-area{background:rgba(30,41,59,0.9);border:1px solid var(--border);border-radius:12px;padding:12px;margin-top:8px;animation:fadeIn .3s ease}
+
+/* === BACKUP & HISTORY TOOLBAR === */
+.section-desc{font-size:.8rem;color:var(--text2);margin-bottom:12px;line-height:1.5}
+.backup-actions{display:flex;gap:8px;margin-bottom:10px}
+.small-btn.secondary{background:rgba(51,65,85,0.7);border:1px solid var(--border)}
+.small-btn.secondary:hover{background:rgba(51,65,85,1)}
+.backup-status-tag{font-size:.74rem;color:var(--success);background:rgba(34,197,94,0.1);padding:6px 10px;border-radius:8px;border:1px solid rgba(34,197,94,0.2)}
+
+.history-toolbar{display:flex;gap:8px;margin-bottom:12px}
+.toolbar-btn{flex:1;padding:8px 10px;background:rgba(30,41,59,0.8);border:1px solid var(--border);border-radius:10px;color:var(--text2);font-family:inherit;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .2s;text-align:center}
+.toolbar-btn:hover,.toolbar-btn.active{background:var(--primary);color:#fff;border-color:var(--primary-light)}
+
+.comparison-card{margin-bottom:14px}
+.comparison-table{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:8px}
+.comparison-table th,.comparison-table td{padding:6px 8px;border:1px solid var(--border);text-align:center}
+.comparison-table th{background:rgba(51,65,85,0.4);color:var(--text2);font-weight:600}
+.diff-up{color:var(--danger);font-weight:600}
+.diff-down{color:var(--success);font-weight:600}
+.diff-same{color:var(--text3)}

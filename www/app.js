@@ -110,6 +110,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Entry
     $('#save-period-btn').addEventListener('click', savePeriod);
 
+    // History toolbar
+    $('#toggle-comparison-btn').addEventListener('click', toggleComparisonView);
+    $('#export-history-csv-btn').addEventListener('click', exportHistoryCsv);
+
     // Settings
     $('#save-settings-btn').addEventListener('click', saveSettings);
     $('#add-room-btn').addEventListener('click', addRoom);
@@ -117,6 +121,18 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem('nhatro_config');
         location.reload();
     });
+    $('#backup-download-btn').addEventListener('click', exportBackupJson);
+    $('#backup-restore-btn').addEventListener('click', () => $('#restore-file-input').click());
+    $('#restore-file-input').addEventListener('change', handleRestoreFile);
+    $('#save-gemini-key-btn').addEventListener('click', saveGeminiKey);
+
+    // OCR Modal
+    $('#close-ocr-modal').addEventListener('click', closeOcrScanner);
+    $('#ocr-modal').addEventListener('click', e => { if (e.target === $('#ocr-modal')) closeOcrScanner(); });
+    $('#ocr-camera-trigger').addEventListener('click', handleCameraTrigger);
+    $('#ocr-album-trigger').addEventListener('click', () => $('#ocr-file-input').click());
+    $('#ocr-file-input').addEventListener('change', handleFileInputOcr);
+    $('#ocr-confirm-btn').addEventListener('click', applyOcrResult);
 
     // Setup
     $('#setup-connect-btn').addEventListener('click', connectSupabase);
@@ -205,13 +221,19 @@ function renderEntry() {
                 <span class="meter-label">⚡</span>
                 <input type="number" class="readonly" id="eOld-${room.id}" value="${prev.elec}" readonly tabindex="-1">
                 <span class="arrow">→</span>
-                <input type="number" id="eNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
+                <div class="input-with-cam">
+                    <input type="number" id="eNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
+                    <button type="button" class="cam-btn" title="Chụp ảnh công tơ điện" onclick="openOcrScanner('${room.id}', 'elec')">📷</button>
+                </div>
             </div>
             <div class="meter-row">
                 <span class="meter-label">💧</span>
                 <input type="number" class="readonly" id="wOld-${room.id}" value="${prev.water}" readonly tabindex="-1">
                 <span class="arrow">→</span>
-                <input type="number" id="wNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
+                <div class="input-with-cam">
+                    <input type="number" id="wNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
+                    <button type="button" class="cam-btn" title="Chụp ảnh đồng hồ nước" onclick="openOcrScanner('${room.id}', 'water')">📷</button>
+                </div>
             </div>`;
         container.appendChild(card);
     });
@@ -260,6 +282,7 @@ async function savePeriod() {
     try {
         const { error } = await sb.from('records').insert(rows);
         if (error) throw error;
+        saveLocalMonthlySnapshot(startDate, endDate, rows);
         await loadAllData();
         toast('✅ Đã lưu kỳ ' + startDate + ' → ' + endDate);
         autoFillDates();
@@ -617,6 +640,20 @@ function renderSettings() {
     $('#set-waterPrice').value = APP.settings.waterPrice;
     $('#set-waterPriceOver').value = APP.settings.waterPriceOver;
     $('#set-garbageFee').value = APP.settings.garbageFee;
+
+    const geminiKey = localStorage.getItem('nhatro_gemini_key') || '';
+    if ($('#set-gemini-key')) $('#set-gemini-key').value = geminiKey;
+
+    const snapshots = JSON.parse(localStorage.getItem('nhatro_monthly_snapshots') || '[]');
+    const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const tagEl = $('#backup-status-tag');
+    if (tagEl) {
+        if (lastSnap) {
+            tagEl.innerHTML = `<span>🕒 Snapshot tự động: <b>${lastSnap.startDate} → ${lastSnap.endDate}</b> (${snapshots.length} kỳ lưu trữ)</span>`;
+        } else {
+            tagEl.innerHTML = `<span>🕒 Chưa có bản snapshot nào. Sẽ tự động lưu sau mỗi lần bạn bấm "Lưu Kỳ Này".</span>`;
+        }
+    }
 }
 
 async function addRoom() {
@@ -665,8 +702,526 @@ async function saveSettings() {
     } catch (e) { toast('❌ Lỗi lưu cài đặt'); console.error(e); }
 }
 
+// ========== SAO LƯU & ĐỐI CHIẾU DỮ LIỆU HÀNG THÁNG ==========
+
+function saveGeminiKey() {
+    const key = $('#set-gemini-key').value.trim();
+    localStorage.setItem('nhatro_gemini_key', key);
+    toast(key ? '✅ Đã lưu Gemini API Key!' : 'ℹ️ Đã xóa Gemini Key (chuyển về Tesseract)');
+}
+
+function saveLocalMonthlySnapshot(startDate, endDate, rows) {
+    try {
+        const snapshots = JSON.parse(localStorage.getItem('nhatro_monthly_snapshots') || '[]');
+        const snapshot = {
+            id: 'snap_' + Date.now(),
+            savedAt: new Date().toISOString(),
+            startDate,
+            endDate,
+            rows,
+            settings: { ...APP.settings },
+            rooms: APP.rooms.map(r => ({ id: r.id, name: r.name, roomFee: r.roomFee }))
+        };
+        // Lọc bỏ kỳ trùng lặp nếu có
+        const filtered = snapshots.filter(s => !(s.startDate === startDate && s.endDate === endDate));
+        filtered.push(snapshot);
+        // Lưu tối đa 48 tháng
+        if (filtered.length > 48) filtered.shift();
+        localStorage.setItem('nhatro_monthly_snapshots', JSON.stringify(filtered));
+        console.log('✅ Đã lưu bản snapshot cục bộ cho kỳ:', startDate, '→', endDate);
+    } catch (e) {
+        console.warn('Lỗi lưu snapshot cục bộ:', e);
+    }
+}
+
+function exportBackupJson() {
+    const data = {
+        appName: 'QuanLyNhaTro',
+        version: '1.2',
+        exportDate: new Date().toISOString(),
+        supabaseUrl: (getConfig() || {}).url || '',
+        rooms: APP.rooms,
+        settings: APP.settings,
+        records: APP.records,
+        localSnapshots: JSON.parse(localStorage.getItem('nhatro_monthly_snapshots') || '[]')
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `NhaTro_Backup_${dateStr}.json`;
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('✅ Đã tải file sao lưu về máy!');
+}
+
+async function handleRestoreFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        if (!data.rooms || !data.records) {
+            toast('❌ File sao lưu không hợp lệ!');
+            return;
+        }
+
+        const confirmMsg = `Bạn có chắc muốn khôi phục dữ liệu từ file này?\n- Số phòng: ${data.rooms.length}\n- Số bản ghi: ${data.records.length}\nNgày tạo: ${data.exportDate || 'Không rõ'}`;
+        if (!confirm(confirmMsg)) return;
+
+        showLoading(true);
+        $('#loading-text').textContent = 'Đang khôi phục dữ liệu vào Database...';
+
+        // 1. Phục hồi Settings
+        if (data.settings) {
+            await sb.from('settings').upsert({
+                id: 1,
+                elec_price: data.settings.elecPrice || data.settings.elec_price || 3000,
+                water_price: data.settings.waterPrice || data.settings.water_price || 11000,
+                water_price_over: data.settings.waterPriceOver || data.settings.water_price_over || 12000,
+                garbage_fee: data.settings.garbageFee || data.settings.garbage_fee || 10000
+            });
+        }
+
+        // 2. Phục hồi Rooms
+        if (data.rooms && data.rooms.length > 0) {
+            const roomRows = data.rooms.map((r, idx) => ({
+                id: r.id,
+                name: r.name,
+                room_fee: r.roomFee || r.room_fee || 700000,
+                sort_order: r.sortOrder || r.sort_order || idx + 1
+            }));
+            await sb.from('rooms').upsert(roomRows);
+        }
+
+        // 3. Phục hồi Records
+        if (data.records && data.records.length > 0) {
+            const recordRows = data.records.map(r => ({
+                id: r.id,
+                start_date: r.start_date || r.startDate,
+                end_date: r.end_date || r.endDate,
+                room_id: r.room_id || r.roomId,
+                elec_old: r.elec_old !== undefined ? r.elec_old : r.elecOld,
+                elec_new: r.elec_new !== undefined ? r.elec_new : r.elecNew,
+                water_old: r.water_old !== undefined ? r.water_old : r.waterOld,
+                water_new: r.water_new !== undefined ? r.water_new : r.waterNew,
+                created_at: r.created_at || r.createdAt || new Date().toISOString()
+            }));
+            await sb.from('records').upsert(recordRows);
+        }
+
+        // 4. Lưu lại snapshots cục bộ nếu có
+        if (data.localSnapshots) {
+            localStorage.setItem('nhatro_monthly_snapshots', JSON.stringify(data.localSnapshots));
+        }
+
+        await loadAllData();
+        renderEntry();
+        renderHistory();
+        renderSettings();
+        toast('🎉 Khôi phục dữ liệu thành công!');
+    } catch (err) {
+        console.error(err);
+        toast('❌ Lỗi khi đọc file phục hồi: ' + err.message);
+    } finally {
+        showLoading(false);
+        $('#loading-text').textContent = 'Đang tải dữ liệu...';
+        e.target.value = '';
+    }
+}
+
+function exportHistoryCsv() {
+    const periods = groupRecords(APP.records);
+    if (periods.length === 0) {
+        toast('⚠️ Chưa có dữ liệu lịch sử để xuất!');
+        return;
+    }
+
+    let csvContent = '\uFEFF'; // BOM UTF-8 để mở tiếng Việt không bị lỗi font trên Excel
+    csvContent += 'Từ ngày,Đến ngày,Tên phòng,Điện cũ,Điện mới,Điện tiêu thụ (kWh),Tiền điện (đ),Nước cũ,Nước mới,Nước tiêu thụ (m³),Tiền nước (đ),Tiền rác (đ),Tiền phòng (đ),Tổng cộng (đ)\n';
+
+    periods.forEach(p => {
+        APP.rooms.forEach(r => {
+            const d = p.data[r.id];
+            if (d) {
+                const c = calcRoom(d, APP.settings, r);
+                csvContent += `"${p.startDate}","${p.endDate}","${r.name}",${d.elecOld},${d.elecNew},${c.elecUsed},${c.elecTotal},${d.waterOld},${d.waterNew},${c.waterUsed},${c.waterTotal},${c.garbageFee},${c.roomFee},${c.finalTotal}\n`;
+            }
+        });
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `DoiChieu_DienNuoc_${dateStr}.csv`;
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('✅ Đã xuất bảng đối chiếu Excel (CSV)!');
+}
+
+function toggleComparisonView() {
+    const compBox = $('#comparison-container');
+    const btn = $('#toggle-comparison-btn');
+    if (!compBox.classList.contains('hidden')) {
+        compBox.classList.add('hidden');
+        btn.classList.remove('active');
+        return;
+    }
+
+    const periods = groupRecords(APP.records);
+    if (periods.length < 2) {
+        toast('⚠️ Cần ít nhất 2 kỳ thu tiền để so sánh đối chiếu!');
+        return;
+    }
+
+    const curr = periods[periods.length - 1];
+    const prev = periods[periods.length - 2];
+
+    let html = `
+        <h3>📈 Đối Chiếu Tiêu Thụ (${curr.startDate} → ${curr.endDate} so với kỳ trước)</h3>
+        <p style="font-size:0.75rem;color:var(--text2);margin-bottom:8px">Cảnh báo màu đỏ nổi bật nếu chỉ số tiêu thụ tăng đột biến trên 50% so với kỳ trước.</p>
+        <div style="overflow-x:auto">
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Phòng</th>
+                    <th>Điện (kWh)</th>
+                    <th>Biến động Điện</th>
+                    <th>Nước (m³)</th>
+                    <th>Biến động Nước</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+    APP.rooms.forEach(r => {
+        const dCurr = curr.data[r.id];
+        const dPrev = prev.data[r.id];
+
+        if (dCurr && dPrev) {
+            const cCurr = calcRoom(dCurr, APP.settings, r);
+            const cPrev = calcRoom(dPrev, APP.settings, r);
+
+            const eDiff = cCurr.elecUsed - cPrev.elecUsed;
+            const ePct = cPrev.elecUsed > 0 ? ((eDiff / cPrev.elecUsed) * 100).toFixed(0) : 0;
+            const wDiff = cCurr.waterUsed - cPrev.waterUsed;
+            const wPct = cPrev.waterUsed > 0 ? ((wDiff / cPrev.waterUsed) * 100).toFixed(0) : 0;
+
+            const isElecSurge = eDiff > 0 && ePct >= 50;
+            const isWaterSurge = wDiff > 0 && wPct >= 50;
+
+            const eClass = eDiff > 0 ? 'diff-up' : (eDiff < 0 ? 'diff-down' : 'diff-same');
+            const wClass = wDiff > 0 ? 'diff-up' : (wDiff < 0 ? 'diff-down' : 'diff-same');
+
+            html += `
+                <tr>
+                    <td><b>${r.name}</b></td>
+                    <td>${cCurr.elecUsed}</td>
+                    <td class="${eClass}">${isElecSurge ? '⚠️ ' : ''}${eDiff > 0 ? '+' : ''}${eDiff} (${eDiff > 0 ? '+' : ''}${ePct}%)</td>
+                    <td>${cCurr.waterUsed}</td>
+                    <td class="${wClass}">${isWaterSurge ? '⚠️ ' : ''}${wDiff > 0 ? '+' : ''}${wDiff} (${wDiff > 0 ? '+' : ''}${wPct}%)</td>
+                </tr>`;
+        }
+    });
+
+    html += `</tbody></table></div>`;
+    compBox.innerHTML = html;
+    compBox.classList.remove('hidden');
+    btn.classList.add('active');
+}
+
+// ========== CAMERA OCR SCANNER ==========
+let CURRENT_OCR = {
+    roomId: null,
+    meterType: null, // 'elec' | 'water'
+    stream: null
+};
+
+function openOcrScanner(roomId, meterType) {
+    CURRENT_OCR.roomId = roomId;
+    CURRENT_OCR.meterType = meterType;
+
+    const room = APP.rooms.find(r => r.id === roomId);
+    const label = meterType === 'elec' ? 'Điện ⚡' : 'Nước 💧';
+    $('#ocr-modal-title').textContent = `📸 Quét chỉ số ${label} - ${room ? room.name : ''}`;
+
+    // Cập nhật thẻ Engine
+    const geminiKey = localStorage.getItem('nhatro_gemini_key') || '';
+    const badge = $('#ocr-engine-tag');
+    if (geminiKey) {
+        badge.className = 'ocr-tag ai';
+        badge.textContent = '🤖 Google Gemini AI (Chính xác cao)';
+    } else {
+        badge.className = 'ocr-tag offline';
+        badge.textContent = '⚙️ Tesseract OCR (Offline)';
+    }
+
+    // Reset trạng thái
+    $('#ocr-msg').textContent = '';
+    $('#ocr-placeholder').classList.remove('hidden');
+    $('#ocr-video').classList.add('hidden');
+    $('#ocr-preview').classList.add('hidden');
+    $('#ocr-guide').classList.add('hidden');
+    $('#ocr-result-area').classList.add('hidden');
+    $('#ocr-scanned-value').value = '';
+
+    // Mở modal
+    $('#ocr-modal').classList.remove('hidden');
+
+    // Thử mở camera trực tiếp
+    startCameraStream();
+}
+
+function startCameraStream() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+        }).then(stream => {
+            CURRENT_OCR.stream = stream;
+            const video = $('#ocr-video');
+            video.srcObject = stream;
+            video.classList.remove('hidden');
+            $('#ocr-placeholder').classList.add('hidden');
+            $('#ocr-guide').classList.remove('hidden');
+            $('#ocr-camera-trigger').textContent = '📸 Bấm Chụp Ngay';
+        }).catch(err => {
+            console.log('Không thể mở video stream trực tiếp:', err);
+            $('#ocr-camera-trigger').textContent = '📷 Mở Máy Ảnh';
+        });
+    } else {
+        $('#ocr-camera-trigger').textContent = '📷 Mở Máy Ảnh';
+    }
+}
+
+function closeOcrScanner() {
+    if (CURRENT_OCR.stream) {
+        CURRENT_OCR.stream.getTracks().forEach(track => track.stop());
+        CURRENT_OCR.stream = null;
+    }
+    $('#ocr-modal').classList.add('hidden');
+}
+
+function handleCameraTrigger() {
+    const video = $('#ocr-video');
+    // Nếu đang có camera stream phát trực tiếp
+    if (CURRENT_OCR.stream && !video.classList.contains('hidden') && video.videoWidth > 0) {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Tắt stream
+        CURRENT_OCR.stream.getTracks().forEach(track => track.stop());
+        CURRENT_OCR.stream = null;
+
+        // Hiển thị ảnh vừa chụp
+        const imgUrl = canvas.toDataURL('image/jpeg', 0.9);
+        $('#ocr-preview').src = imgUrl;
+        $('#ocr-preview').classList.remove('hidden');
+        video.classList.add('hidden');
+        $('#ocr-guide').classList.add('hidden');
+        $('#ocr-camera-trigger').textContent = '🔄 Chụp Lại';
+
+        // Tiến hành nhận diện
+        processOcrRecognition(canvas);
+    } else {
+        // Mở file input máy ảnh của điện thoại
+        $('#ocr-file-input').click();
+    }
+}
+
+function handleFileInputOcr(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (CURRENT_OCR.stream) {
+        CURRENT_OCR.stream.getTracks().forEach(track => track.stop());
+        CURRENT_OCR.stream = null;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        $('#ocr-preview').src = canvas.toDataURL('image/jpeg', 0.9);
+        $('#ocr-preview').classList.remove('hidden');
+        $('#ocr-video').classList.add('hidden');
+        $('#ocr-placeholder').classList.add('hidden');
+        $('#ocr-guide').classList.add('hidden');
+        $('#ocr-camera-trigger').textContent = '🔄 Chụp Lại';
+
+        processOcrRecognition(canvas);
+    };
+    img.src = URL.createObjectURL(file);
+    e.target.value = '';
+}
+
+async function processOcrRecognition(canvas) {
+    const msgEl = $('#ocr-msg');
+    const resultArea = $('#ocr-result-area');
+    const inputVal = $('#ocr-scanned-value');
+
+    msgEl.textContent = '⏳ Đang quét và phân tích con số...';
+    resultArea.classList.add('hidden');
+
+    const geminiKey = localStorage.getItem('nhatro_gemini_key') || '';
+
+    // === OPTION 1: GOOGLE GEMINI VISION AI (Siêu chuẩn xác) ===
+    if (geminiKey) {
+        try {
+            msgEl.textContent = '🤖 Đang phân tích bằng Gemini AI...';
+            const base64Data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+            const promptText = `Bạn là trợ lý đọc chỉ số công tơ điện và đồng hồ nước tại Việt Nam.
+Hãy đọc các chữ số hiển thị trên mặt số đồng hồ trong ảnh này.
+Quy tắc quan trọng:
+1. Đối với công tơ điện Việt Nam: Chỉ lấy các chữ số màu đen biểu thị số nguyên kWh. TUYỆT ĐỐI BỎ QUA chữ số màu đỏ thập phân ở cuối cùng bên phải.
+2. Đối với đồng hồ nước: Chỉ lấy số khối nguyên (dãy số màu đen hoặc trắng).
+3. Chỉ trả về DUY NHẤT một con số nguyên (ví dụ: 1248 hoặc 35), không kèm theo bất kỳ chữ, đơn vị hay ký tự nào khác.`;
+
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: promptText },
+                            { inline_data: { mime_type: 'image/jpeg', data: base64Data } }
+                        ]
+                    }]
+                })
+            });
+
+            if (!res.ok) throw new Error('Gemini API HTTP ' + res.status);
+            const resJson = await res.json();
+            const textResult = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const match = textResult.match(/\d+/);
+
+            if (match) {
+                const number = parseInt(match[0], 10);
+                inputVal.value = number;
+                resultArea.classList.remove('hidden');
+                msgEl.textContent = '✅ Đã nhận diện thành công!';
+                return;
+            }
+        } catch (e) {
+            console.warn('Gemini Vision thất bại, tự động chuyển sang Tesseract OCR:', e);
+            msgEl.textContent = '⚠️ AI bận, chuyển sang Tesseract OCR...';
+        }
+    }
+
+    // === OPTION 2: TESSERACT.JS OCR (Chạy Offline trên máy) ===
+    try {
+        if (!window.Tesseract) {
+            throw new Error('Thư viện Tesseract chưa sẵn sàng.');
+        }
+
+        msgEl.textContent = '⚙️ Đang quét bằng Tesseract OCR...';
+
+        // Tiền xử lý ảnh tăng độ tương phản để OCR dễ đọc số
+        const procCanvas = preprocessCanvasForOcr(canvas);
+
+        const result = await window.Tesseract.recognize(procCanvas, 'eng', {
+            tessedit_char_whitelist: '0123456789'
+        });
+
+        const rawText = result.data?.text || '';
+        // Tìm chuỗi số dài nhất trong kết quả
+        const numbers = rawText.match(/\d+/g) || [];
+        if (numbers.length > 0) {
+            numbers.sort((a, b) => b.length - a.length);
+            const foundNum = parseInt(numbers[0], 10);
+            inputVal.value = foundNum;
+            resultArea.classList.remove('hidden');
+            msgEl.textContent = '✅ Nhận diện xong! Kiểm tra lại số trước khi điền.';
+            return;
+        }
+
+        msgEl.textContent = '⚠️ Không đọc rõ chữ số. Hãy nhập tay bên dưới hoặc chụp lại.';
+        inputVal.value = '';
+        resultArea.classList.remove('hidden');
+    } catch (err) {
+        console.error('Lỗi OCR:', err);
+        msgEl.textContent = '❌ Lỗi nhận diện: ' + err.message;
+        inputVal.value = '';
+        resultArea.classList.remove('hidden');
+    }
+}
+
+function preprocessCanvasForOcr(srcCanvas) {
+    const canvas = document.createElement('canvas');
+    canvas.width = srcCanvas.width;
+    canvas.height = srcCanvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(srcCanvas, 0, 0);
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+
+    // Chuyển sang Grayscale & tăng tương phản
+    for (let i = 0; i < data.length; i += 4) {
+        const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        // Thresholding nhẹ
+        const val = avg > 120 ? 255 : (avg < 80 ? 0 : avg);
+        data[i] = val;
+        data[i + 1] = val;
+        data[i + 2] = val;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return canvas;
+}
+
+function applyOcrResult() {
+    const val = parseFloat($('#ocr-scanned-value').value);
+    if (isNaN(val) || val < 0) {
+        toast('⚠️ Vui lòng nhập số hợp lệ!');
+        return;
+    }
+
+    const inputId = CURRENT_OCR.meterType === 'elec' ? `#eNew-${CURRENT_OCR.roomId}` : `#wNew-${CURRENT_OCR.roomId}`;
+    const targetInput = $(inputId);
+
+    if (targetInput) {
+        targetInput.value = val;
+        // Kích hoạt sự kiện input để tính ngay số tiền phòng
+        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // Hiệu ứng highlight màu xanh
+        targetInput.style.borderColor = 'var(--success)';
+        targetInput.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.25)';
+        setTimeout(() => {
+            targetInput.style.borderColor = '';
+            targetInput.style.boxShadow = '';
+        }, 1500);
+
+        const room = APP.rooms.find(r => r.id === CURRENT_OCR.roomId);
+        toast(`✅ Đã điền ${fmt(val)} vào ô ${CURRENT_OCR.meterType === 'elec' ? 'Điện' : 'Nước'} (${room ? room.name : ''})`);
+        closeOcrScanner();
+    }
+}
+
 // Globals for onclick handlers in HTML
 window.showReceipt = showReceipt;
 window.deletePeriod = deletePeriod;
 window.removeRoom = removeRoom;
 window.togglePeriod = togglePeriod;
+window.openOcrScanner = openOcrScanner;
+window.closeOcrScanner = closeOcrScanner;
+window.applyOcrResult = applyOcrResult;
+window.exportBackupJson = exportBackupJson;
+window.exportHistoryCsv = exportHistoryCsv;
+window.toggleComparisonView = toggleComparisonView;
+
