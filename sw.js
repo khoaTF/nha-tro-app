@@ -1,11 +1,11 @@
-const CACHE_NAME = 'nhatro-v5';
+const CACHE_NAME = 'nhatro-v6';
 const ASSETS = [
-    '/',
-    '/index.html',
-    '/style.css',
-    '/app.js',
-    '/manifest.json',
-    '/icon-512.png',
+    './',
+    './index.html',
+    './style.css',
+    './app.js',
+    './manifest.json',
+    './icon-512.png',
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 ];
 
@@ -31,8 +31,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
 
-    // Supabase API calls: always network
-    if (url.hostname.includes('supabase')) {
+    // Supabase API calls & Gemini API: always network
+    if (url.hostname.includes('supabase') || url.hostname.includes('googleapis') || url.hostname.includes('jsdelivr')) {
         e.respondWith(fetch(e.request));
         return;
     }
@@ -49,6 +49,6 @@ self.addEventListener('fetch', e => {
                 }
                 return response;
             });
-        }).catch(() => caches.match('/index.html'))
+        }).catch(() => caches.match('./index.html'))
     );
 });
