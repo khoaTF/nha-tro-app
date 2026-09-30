@@ -133,6 +133,20 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#ocr-album-trigger').addEventListener('click', () => $('#ocr-file-input').click());
     $('#ocr-file-input').addEventListener('change', handleFileInputOcr);
     $('#ocr-confirm-btn').addEventListener('click', applyOcrResult);
+    $('#ocr-dec-btn').addEventListener('click', () => {
+        const input = $('#ocr-scanned-value');
+        const cur = parseInt(input.value, 10);
+        if (!isNaN(cur) && cur > 0) {
+            input.value = cur - 1;
+            updateActiveChip(cur - 1);
+        }
+    });
+    $('#ocr-inc-btn').addEventListener('click', () => {
+        const input = $('#ocr-scanned-value');
+        const cur = parseInt(input.value, 10) || 0;
+        input.value = cur + 1;
+        updateActiveChip(cur + 1);
+    });
 
     // Setup
     $('#setup-connect-btn').addEventListener('click', connectSupabase);
@@ -951,8 +965,17 @@ function openOcrScanner(roomId, meterType) {
     CURRENT_OCR.meterType = meterType;
 
     const room = APP.rooms.find(r => r.id === roomId);
-    const label = meterType === 'elec' ? 'Điện ⚡' : 'Nước 💧';
-    $('#ocr-modal-title').textContent = `📸 Quét chỉ số ${label} - ${room ? room.name : ''}`;
+    const isWater = meterType === 'water';
+    const label = isWater ? 'Đồng Hồ Nước (m³)' : 'Công Tơ Điện (kWh)';
+    $('#ocr-modal-title').textContent = `📸 Quét ${label} - ${room ? room.name : ''}`;
+
+    // Cập nhật hướng dẫn ngắm số
+    const guideHint = document.querySelector('.ocr-guide-hint');
+    if (guideHint) {
+        guideHint.textContent = isWater
+            ? 'Căn hàng con lăn vào khung (Chỉ lấy số đen m³)'
+            : 'Căn hàng số công tơ vào khung (Chỉ lấy số đen kWh)';
+    }
 
     // Cập nhật thẻ Engine
     const geminiKey = localStorage.getItem('nhatro_gemini_key') || '';
@@ -972,6 +995,13 @@ function openOcrScanner(roomId, meterType) {
     $('#ocr-preview').classList.add('hidden');
     $('#ocr-guide').classList.add('hidden');
     $('#ocr-result-area').classList.add('hidden');
+    const noteEl = $('#ocr-result-note');
+    if (noteEl) {
+        noteEl.classList.add('hidden');
+        noteEl.textContent = '';
+    }
+    const suggEl = $('#ocr-suggestions');
+    if (suggEl) suggEl.innerHTML = '';
     $('#ocr-scanned-value').value = '';
 
     // Mở modal
@@ -1074,23 +1104,52 @@ async function processOcrRecognition(canvas) {
     const msgEl = $('#ocr-msg');
     const resultArea = $('#ocr-result-area');
     const inputVal = $('#ocr-scanned-value');
+    const noteEl = $('#ocr-result-note');
+    const suggEl = $('#ocr-suggestions');
 
-    msgEl.textContent = '⏳ Đang quét và phân tích con số...';
+    msgEl.textContent = '⏳ Đang quét và phân tích chỉ số...';
     resultArea.classList.add('hidden');
+    if (noteEl) {
+        noteEl.classList.add('hidden');
+        noteEl.textContent = '';
+    }
+    if (suggEl) suggEl.innerHTML = '';
 
+    const isWater = CURRENT_OCR.meterType === 'water';
     const geminiKey = localStorage.getItem('nhatro_gemini_key') || '';
 
-    // === OPTION 1: GOOGLE GEMINI VISION AI (Siêu chuẩn xác) ===
+    // === OPTION 1: GOOGLE GEMINI VISION AI (Siêu chuẩn xác & phân biệt số đỏ) ===
     if (geminiKey) {
         try {
             msgEl.textContent = '🤖 Đang phân tích bằng Gemini AI...';
             const base64Data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
-            const promptText = `Bạn là trợ lý đọc chỉ số công tơ điện và đồng hồ nước tại Việt Nam.
-Hãy đọc các chữ số hiển thị trên mặt số đồng hồ trong ảnh này.
-Quy tắc quan trọng:
-1. Đối với công tơ điện Việt Nam: Chỉ lấy các chữ số màu đen biểu thị số nguyên kWh. TUYỆT ĐỐI BỎ QUA chữ số màu đỏ thập phân ở cuối cùng bên phải.
-2. Đối với đồng hồ nước: Chỉ lấy số khối nguyên (dãy số màu đen hoặc trắng).
-3. Chỉ trả về DUY NHẤT một con số nguyên (ví dụ: 1248 hoặc 35), không kèm theo bất kỳ chữ, đơn vị hay ký tự nào khác.`;
+            const promptText = isWater
+                ? `Bạn là chuyên gia thị giác máy tính đọc chỉ số ĐỒNG HỒ NƯỚC sinh hoạt tại Việt Nam (như các hiệu LXS-15E, Zenner, Kent, Asahi...).
+Nhiệm vụ: Đọc chỉ số tiêu thụ nước (số khối m³) trên mặt đồng hồ trong ảnh để tính tiền phòng trọ.
+
+QUY TẮC BẮT BUỘC:
+1. DÃY HỘP SỐ CON LĂN: Nhìn vào dãy con lăn số nằm ngang ở giữa mặt đồng hồ (thường gồm 5 chữ số: 4 số đầu màu ĐEN và 1 số cuối cùng bên phải màu ĐỎ hoặc viền đỏ).
+2. QUY TẮC BỎ SỐ ĐỎ: Chỉ lấy các chữ số màu ĐEN biểu thị số mét khối (m³). TUYỆT ĐỐI BỎ chữ số màu ĐỎ thập phân ở cuối cùng bên phải!
+   - Ví dụ: Dãy số con lăn là [1] [0] [3] [9] [0 đỏ] -> Chỉ số m³ cần lấy là 1039 (bỏ số 0 màu đỏ).
+   - Ví dụ: Dãy số là [0] [4] [5] [2] [8 đỏ] -> Chỉ số m³ cần lấy là 452.
+3. TUYỆT ĐỐI BỎ QUA:
+   - Các số hiệu kiểm định, số seri (ví dụ MC 00000465, S/N...).
+   - Tên model (ví dụ LXS-15E, DN15...).
+   - Các mặt kim tròn nhỏ phụ bên dưới (x0.0001, x0.001...).
+4. ĐỊNH DẠNG ĐẦU RA: Trả về duy nhất một chuỗi JSON hợp lệ với cấu trúc sau, không kèm bất kỳ giải thích nào khác ngoài JSON:
+{"reading": 1039, "full_digits": "10390", "has_red_digit": true, "note": "Đã lấy 1039 m³ (bỏ số đỏ 0 ở cuối)"}`
+                : `Bạn là chuyên gia thị giác máy tính đọc chỉ số CÔNG TƠ ĐIỆN 1 pha tại Việt Nam (như EMIC, Gelex...).
+Nhiệm vụ: Đọc chỉ số điện tiêu thụ (kWh nguyên) trên mặt công tơ trong ảnh để tính tiền phòng trọ.
+
+QUY TẮC BẮT BUỘC:
+1. DÃY HỘP SỐ CON LĂN: Đọc dãy chữ số hiển thị chỉ số kWh.
+2. BỎ CHỮ SỐ THẬP PHÂN: Ô cuối cùng bên phải có viền đỏ hoặc chữ số màu đỏ là phần thập phân (0.1 kWh). TUYỆT ĐỐI BỎ QUA chữ số màu đỏ này, CHỈ LẤY CÁC CHỮ SỐ MÀU ĐEN (số nguyên kWh).
+   - Ví dụ: Dãy số là 0 1 2 4 8 [5 đỏ] -> Chỉ số cần lấy là 1248.
+3. TUYỆT ĐỐI BỎ QUA:
+   - Số seri công tơ (No. 01234567...).
+   - Thông số kỹ thuật (220V, 5(20)A, 450v/kWh...).
+4. ĐỊNH DẠNG ĐẦU RA: Trả về duy nhất một chuỗi JSON hợp lệ với cấu trúc sau, không kèm bất kỳ giải thích nào khác ngoài JSON:
+{"reading": 1248, "full_digits": "12485", "has_red_digit": true, "note": "Đã lấy 1248 kWh (bỏ số thập phân viền đỏ)"}`;
 
             const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
                 method: 'POST',
@@ -1108,13 +1167,33 @@ Quy tắc quan trọng:
             if (!res.ok) throw new Error('Gemini API HTTP ' + res.status);
             const resJson = await res.json();
             const textResult = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const match = textResult.match(/\d+/);
+            
+            let parsedResult = null;
+            const jsonMatch = textResult.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    parsedResult = JSON.parse(jsonMatch[0]);
+                } catch (e) {}
+            }
 
-            if (match) {
-                const number = parseInt(match[0], 10);
-                inputVal.value = number;
-                resultArea.classList.remove('hidden');
-                msgEl.textContent = '✅ Đã nhận diện thành công!';
+            let primaryVal = null;
+            let fullDigitsVal = null;
+            let noteMsg = '';
+
+            if (parsedResult && typeof parsedResult.reading === 'number') {
+                primaryVal = parsedResult.reading;
+                if (parsedResult.full_digits) fullDigitsVal = parseInt(parsedResult.full_digits, 10);
+                noteMsg = parsedResult.note || '';
+            } else {
+                const match = textResult.match(/\d+/);
+                if (match) {
+                    primaryVal = parseInt(match[0], 10);
+                }
+            }
+
+            if (primaryVal !== null && !isNaN(primaryVal)) {
+                renderOcrCandidates(primaryVal, fullDigitsVal, noteMsg);
+                msgEl.textContent = '✅ Đã nhận diện bằng Gemini AI!';
                 return;
             }
         } catch (e) {
@@ -1131,26 +1210,42 @@ Quy tắc quan trọng:
 
         msgEl.textContent = '⚙️ Đang quét bằng Tesseract OCR...';
 
-        // Tiền xử lý ảnh tăng độ tương phản để OCR dễ đọc số
-        const procCanvas = preprocessCanvasForOcr(canvas);
+        // 1. Cắt vùng con lăn ROI (ở giữa ảnh, tránh số seri MC và model phía trên)
+        const roiCanvas = extractRollerRoi(canvas);
+
+        // 2. Tiền xử lý tăng cường tương phản & lọc số đỏ nếu là đồng hồ nước
+        const procCanvas = preprocessCanvasForOcr(roiCanvas, isWater);
 
         const result = await window.Tesseract.recognize(procCanvas, 'eng', {
-            tessedit_char_whitelist: '0123456789'
+            tessedit_char_whitelist: '0123456789',
+            tessedit_pageseg_mode: '7'
         });
 
         const rawText = result.data?.text || '';
-        // Tìm chuỗi số dài nhất trong kết quả
-        const numbers = rawText.match(/\d+/g) || [];
-        if (numbers.length > 0) {
-            numbers.sort((a, b) => b.length - a.length);
-            const foundNum = parseInt(numbers[0], 10);
-            inputVal.value = foundNum;
-            resultArea.classList.remove('hidden');
-            msgEl.textContent = '✅ Nhận diện xong! Kiểm tra lại số trước khi điền.';
+        console.log('Tesseract ROI text:', rawText);
+
+        const candidates = extractMeterCandidates(rawText, isWater);
+        if (candidates.length > 0) {
+            const best = candidates[0];
+            renderOcrCandidates(best.primary, best.full, best.note, candidates);
+            msgEl.textContent = '✅ Nhận diện xong! Kiểm tra lại trước khi điền.';
             return;
         }
 
-        msgEl.textContent = '⚠️ Không đọc rõ chữ số. Hãy nhập tay bên dưới hoặc chụp lại.';
+        // Thử lại lần 2 với toàn bộ ảnh (không cắt ROI)
+        const fullProc = preprocessCanvasForOcr(canvas, false);
+        const retryResult = await window.Tesseract.recognize(fullProc, 'eng', {
+            tessedit_char_whitelist: '0123456789'
+        });
+        const retryCandidates = extractMeterCandidates(retryResult.data?.text || '', isWater);
+        if (retryCandidates.length > 0) {
+            const best = retryCandidates[0];
+            renderOcrCandidates(best.primary, best.full, best.note, retryCandidates);
+            msgEl.textContent = '✅ Nhận diện xong! Kiểm tra lại trước khi điền.';
+            return;
+        }
+
+        msgEl.textContent = '⚠️ Không đọc rõ chữ số. Hãy kiểm tra hoặc nhập tay số bên dưới.';
         inputVal.value = '';
         resultArea.classList.remove('hidden');
     } catch (err) {
@@ -1161,7 +1256,24 @@ Quy tắc quan trọng:
     }
 }
 
-function preprocessCanvasForOcr(srcCanvas) {
+// Cắt vùng con lăn số ở dải ngang giữa ảnh
+function extractRollerRoi(srcCanvas) {
+    const roi = document.createElement('canvas');
+    // Con lăn số thường nằm ở khoảng Y: 30% - 68%, X: 8% - 92%
+    const cropX = Math.floor(srcCanvas.width * 0.08);
+    const cropY = Math.floor(srcCanvas.height * 0.30);
+    const cropW = Math.floor(srcCanvas.width * 0.84);
+    const cropH = Math.floor(srcCanvas.height * 0.38);
+
+    roi.width = cropW;
+    roi.height = cropH;
+    const ctx = roi.getContext('2d');
+    ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    return roi;
+}
+
+// Tiền xử lý ảnh: Tăng tương phản & lọc số đỏ cho đồng hồ nước
+function preprocessCanvasForOcr(srcCanvas, filterRed = false) {
     const canvas = document.createElement('canvas');
     canvas.width = srcCanvas.width;
     canvas.height = srcCanvas.height;
@@ -1171,17 +1283,179 @@ function preprocessCanvasForOcr(srcCanvas) {
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
 
-    // Chuyển sang Grayscale & tăng tương phản
-    for (let i = 0; i < data.length; i += 4) {
-        const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        // Thresholding nhẹ
-        const val = avg > 120 ? 255 : (avg < 80 ? 0 : avg);
+    let minGray = 255, maxGray = 0;
+    const grays = new Float32Array(canvas.width * canvas.height);
+
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        // Nếu lọc đỏ (đồng hồ nước): biến pixel đỏ thành trắng nền (loại bỏ chữ số đỏ cuối)
+        if (filterRed && r > 120 && r > g * 1.25 && r > b * 1.25) {
+            grays[j] = 255;
+        } else {
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            grays[j] = gray;
+            if (gray < minGray) minGray = gray;
+            if (gray > maxGray) maxGray = gray;
+        }
+    }
+
+    // Kéo giãn tương phản
+    const range = Math.max(1, maxGray - minGray);
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+        const norm = ((grays[j] - minGray) / range) * 255;
+        const val = norm < 110 ? 0 : (norm > 160 ? 255 : norm);
         data[i] = val;
         data[i + 1] = val;
         data[i + 2] = val;
     }
+
     ctx.putImageData(imgData, 0, 0);
     return canvas;
+}
+
+// Phân tích các chuỗi số & trích xuất các ứng viên chỉ số
+function extractMeterCandidates(rawText, isWater) {
+    const rawMatches = rawText.match(/\d+/g) || [];
+    const validMatches = [];
+
+    for (const str of rawMatches) {
+        // Bỏ các chuỗi số seri có từ 3 số 0 liên tiếp ở đầu (như MC 00000465)
+        if (/^000/.test(str)) continue;
+        // Bỏ các số nhỏ tách rời như 15 trong LXS-15E
+        if (str.length < 3) continue;
+        validMatches.push(str);
+    }
+
+    const candidates = [];
+    for (const str of validMatches) {
+        const fullNum = parseInt(str, 10);
+        if (isNaN(fullNum)) continue;
+
+        if (isWater) {
+            // Đồng hồ nước: Nếu 5 chữ số -> thường là 4 số đen + 1 số đỏ (vd: 10390 -> 1039)
+            if (str.length === 5) {
+                const primary = Math.floor(fullNum / 10);
+                candidates.push({
+                    primary,
+                    full: fullNum,
+                    note: `💧 Đã tự động lấy ${primary} m³ (bỏ số đỏ ${str[4]} ở cuối)`
+                });
+            } else if (str.length === 4) {
+                candidates.push({
+                    primary: fullNum,
+                    full: fullNum,
+                    note: `💧 Đã nhận diện ${fullNum} m³`
+                });
+            } else if (str.length === 6) {
+                const primary = Math.floor(fullNum / 10);
+                candidates.push({
+                    primary,
+                    full: fullNum,
+                    note: `💧 Đã tự động lấy ${primary} m³ (bỏ số đỏ ở cuối)`
+                });
+            } else {
+                candidates.push({
+                    primary: fullNum,
+                    full: fullNum,
+                    note: `💧 Số đọc được: ${fullNum}`
+                });
+            }
+        } else {
+            // Công tơ điện: Nếu từ 5 chữ số trở lên có chữ số thập phân viền đỏ
+            if (str.length >= 5) {
+                const primary = Math.floor(fullNum / 10);
+                candidates.push({
+                    primary,
+                    full: fullNum,
+                    note: `⚡ Đã tự động lấy ${primary} kWh (bỏ số đỏ ở cuối)`
+                });
+            } else {
+                candidates.push({
+                    primary: fullNum,
+                    full: fullNum,
+                    note: `⚡ Số điện: ${fullNum} kWh`
+                });
+            }
+        }
+    }
+    return candidates;
+}
+
+// Hiển thị kết quả & các nút chọn nhanh
+function renderOcrCandidates(primaryVal, fullVal, noteMsg, allCandidates = []) {
+    const inputVal = $('#ocr-scanned-value');
+    const resultArea = $('#ocr-result-area');
+    const noteEl = $('#ocr-result-note');
+    const suggEl = $('#ocr-suggestions');
+
+    inputVal.value = primaryVal;
+    resultArea.classList.remove('hidden');
+
+    if (noteMsg && noteEl) {
+        noteEl.textContent = noteMsg;
+        noteEl.classList.remove('hidden');
+    } else if (noteEl) {
+        noteEl.classList.add('hidden');
+    }
+
+    if (!suggEl) return;
+    suggEl.innerHTML = '';
+    const isWater = CURRENT_OCR.meterType === 'water';
+    const chips = [];
+
+    // Chip chính: số khối nguyên (bỏ số đỏ)
+    chips.push({
+        val: primaryVal,
+        label: isWater ? `🎯 ${primaryVal} (Số khối m³)` : `🎯 ${primaryVal} (Số điện kWh)`,
+        active: true
+    });
+
+    // Chip phụ: số đầy đủ cả số đỏ (nếu khác số chính)
+    if (fullVal && fullVal !== primaryVal) {
+        chips.push({
+            val: fullVal,
+            label: `🔢 ${fullVal} (Cả số đỏ)`,
+            active: false
+        });
+    }
+
+    // Các ứng viên khác nếu có
+    if (Array.isArray(allCandidates)) {
+        for (const c of allCandidates) {
+            if (!chips.some(chip => chip.val === c.primary)) {
+                chips.push({
+                    val: c.primary,
+                    label: `🔢 ${c.primary}`,
+                    active: false
+                });
+            }
+        }
+    }
+
+    chips.forEach(chip => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ocr-chip' + (chip.active ? ' active' : '');
+        btn.textContent = chip.label;
+        btn.onclick = () => {
+            inputVal.value = chip.val;
+            suggEl.querySelectorAll('.ocr-chip').forEach(el => el.classList.remove('active'));
+            btn.classList.add('active');
+        };
+        suggEl.appendChild(btn);
+    });
+}
+
+function updateActiveChip(val) {
+    const suggEl = $('#ocr-suggestions');
+    if (!suggEl) return;
+    suggEl.querySelectorAll('.ocr-chip').forEach(el => {
+        if (el.textContent.includes(String(val))) {
+            el.classList.add('active');
+        } else {
+            el.classList.remove('active');
+        }
+    });
 }
 
 function applyOcrResult() {

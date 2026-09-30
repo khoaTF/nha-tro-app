@@ -187,9 +187,15 @@
 
                 <div id="ocr-result-area" class="ocr-result-area hidden">
                     <div class="input-group">
-                        <label>Số nhận diện được (kiểm tra lại trước khi điền):</label>
-                        <input type="number" id="ocr-scanned-value" style="font-size:1.35rem;font-weight:700;color:var(--accent);text-align:center;letter-spacing:2px">
+                        <label id="ocr-result-label">Số nhận diện được (kiểm tra lại trước khi điền):</label>
+                        <div class="ocr-input-row">
+                            <button type="button" id="ocr-dec-btn" class="ocr-adjust-btn" title="Giảm 1 số">-1</button>
+                            <input type="number" id="ocr-scanned-value" style="font-size:1.35rem;font-weight:700;color:var(--accent);text-align:center;letter-spacing:2px">
+                            <button type="button" id="ocr-inc-btn" class="ocr-adjust-btn" title="Tăng 1 số">+1</button>
+                        </div>
                     </div>
+                    <div id="ocr-result-note" class="ocr-result-note hidden"></div>
+                    <div id="ocr-suggestions" class="ocr-suggestions"></div>
                     <button id="ocr-confirm-btn" class="primary-btn">✅ Điền Vào Ô Này</button>
                 </div>
             </div>
@@ -198,7 +204,7 @@
         <!-- TOAST -->
         <div id="toast" class="toast hidden"></div>
     </div>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=7"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(e => console.log('SW error:', e));
