@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nhatro-v7';
+const CACHE_NAME = 'nhatro-v8';
 const ASSETS = [
     './',
     './index.html',
@@ -17,7 +17,7 @@ self.addEventListener('install', e => {
     self.skipWaiting();
 });
 
-// Activate: clean old caches
+// Activate: clean old caches immediately
 self.addEventListener('activate', e => {
     e.waitUntil(
         caches.keys().then(keys =>
@@ -27,7 +27,7 @@ self.addEventListener('activate', e => {
     self.clients.claim();
 });
 
-// Fetch: network-first for API calls, cache-first for assets
+// Fetch: Network-first for API & HTML documents, Cache-first for static assets
 self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
 
@@ -37,12 +37,27 @@ self.addEventListener('fetch', e => {
         return;
     }
 
-    // Assets: cache-first, fallback to network
+    // HTML / Navigation: Network-First (để khi có mạng luôn nhận giao diện mới nhất, không bị kẹt cache cũ)
+    if (e.request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname.endsWith('/')) {
+        e.respondWith(
+            fetch(e.request)
+                .then(res => {
+                    if (res.ok) {
+                        const clone = res.clone();
+                        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+                    }
+                    return res;
+                })
+                .catch(() => caches.match(e.request).then(cached => cached || caches.match('./index.html')))
+        );
+        return;
+    }
+
+    // Static assets (css, js, images): Cache-first, fallback to network
     e.respondWith(
         caches.match(e.request).then(cached => {
             if (cached) return cached;
             return fetch(e.request).then(response => {
-                // Cache new assets
                 if (response.ok && e.request.method === 'GET') {
                     const clone = response.clone();
                     caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));

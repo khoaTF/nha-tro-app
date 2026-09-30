@@ -5,7 +5,15 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 let sb = null; // Supabase client
 let APP = { rooms: [], settings: {}, records: [] };
 
-function getConfig() { return JSON.parse(localStorage.getItem('nhatro_config') || 'null') || { url: SUPABASE_URL, key: SUPABASE_KEY }; }
+function getConfig() {
+    try {
+        const stored = JSON.parse(localStorage.getItem('nhatro_config') || 'null');
+        if (stored && stored.url && stored.key) return stored;
+    } catch (e) {
+        console.warn('Lỗi đọc nhatro_config:', e);
+    }
+    return { url: SUPABASE_URL, key: SUPABASE_KEY };
+}
 function setConfig(cfg) { localStorage.setItem('nhatro_config', JSON.stringify(cfg)); }
 
 function initClient(url, key) {
@@ -19,6 +27,7 @@ function $$(sel) { return document.querySelectorAll(sel); }
 
 function toast(msg) {
     const el = $('#toast');
+    if (!el) return;
     el.textContent = msg;
     el.classList.remove('hidden');
     el.classList.add('show');
@@ -26,7 +35,8 @@ function toast(msg) {
 }
 
 function showLoading(show) {
-    $('#loading-overlay').classList.toggle('hidden', !show);
+    const el = $('#loading-overlay');
+    if (el) el.classList.toggle('hidden', !show);
 }
 
 function calcRoom(rd, settings, room) {
@@ -50,14 +60,17 @@ function calcRoom(rd, settings, room) {
 async function loadAllData() {
     const [roomsRes, settingsRes, recordsRes] = await Promise.all([
         sb.from('rooms').select('*').order('sort_order'),
-        sb.from('settings').select('*').eq('id', 1).single(),
+        sb.from('settings').select('*').eq('id', 1).maybeSingle(),
         sb.from('records').select('*').order('created_at')
     ]);
-    if (roomsRes.error) throw roomsRes.error;
+    if (roomsRes.error) {
+        console.error('Lỗi tải rooms:', roomsRes.error);
+        throw roomsRes.error;
+    }
     APP.rooms = (roomsRes.data || []).map(r => ({ id: r.id, name: r.name, roomFee: r.room_fee, sortOrder: r.sort_order }));
-    const s = settingsRes.data;
+    const s = settingsRes ? settingsRes.data : null;
     APP.settings = s ? { elecPrice: s.elec_price, waterPrice: s.water_price, waterPriceOver: s.water_price_over, garbageFee: s.garbage_fee } : { elecPrice: 3000, waterPrice: 11000, waterPriceOver: 12000, garbageFee: 10000 };
-    APP.records = recordsRes.data || [];
+    APP.records = (recordsRes && recordsRes.data) || [];
 }
 
 function groupRecords(flat) {
@@ -94,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
             $$('.tab-btn').forEach(b => b.classList.remove('active'));
             $$('.tab-content').forEach(t => t.classList.remove('active'));
             btn.classList.add('active');
-            $(`#tab-${btn.dataset.tab}`).classList.add('active');
+            $(`#tab-${btn.dataset.tab}`)?.classList.add('active');
             if (btn.dataset.tab === 'history') renderHistory();
             if (btn.dataset.tab === 'settings') renderSettings();
             if (btn.dataset.tab === 'entry') renderEntry();
@@ -102,92 +115,102 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Modal
-    $('#close-modal').addEventListener('click', () => $('#receipt-modal').classList.add('hidden'));
-    $('#receipt-modal').addEventListener('click', e => { if (e.target === $('#receipt-modal')) $('#receipt-modal').classList.add('hidden'); });
-    $('#download-btn').addEventListener('click', downloadReceipt);
-    $('#share-btn').addEventListener('click', shareReceipt);
+    $('#close-modal')?.addEventListener('click', () => $('#receipt-modal')?.classList.add('hidden'));
+    $('#receipt-modal')?.addEventListener('click', e => { if (e.target === $('#receipt-modal')) $('#receipt-modal')?.classList.add('hidden'); });
+    $('#download-btn')?.addEventListener('click', downloadReceipt);
+    $('#share-btn')?.addEventListener('click', shareReceipt);
 
     // Entry
-    $('#save-period-btn').addEventListener('click', savePeriod);
+    $('#save-period-btn')?.addEventListener('click', savePeriod);
 
     // History toolbar
-    $('#toggle-comparison-btn').addEventListener('click', toggleComparisonView);
-    $('#export-history-csv-btn').addEventListener('click', exportHistoryCsv);
+    $('#toggle-comparison-btn')?.addEventListener('click', toggleComparisonView);
+    $('#export-history-csv-btn')?.addEventListener('click', exportHistoryCsv);
 
     // Settings
-    $('#save-settings-btn').addEventListener('click', saveSettings);
-    $('#add-room-btn').addEventListener('click', addRoom);
-    $('#disconnect-btn').addEventListener('click', () => {
+    $('#save-settings-btn')?.addEventListener('click', saveSettings);
+    $('#add-room-btn')?.addEventListener('click', addRoom);
+    $('#disconnect-btn')?.addEventListener('click', () => {
         localStorage.removeItem('nhatro_config');
         location.reload();
     });
-    $('#backup-download-btn').addEventListener('click', exportBackupJson);
-    $('#backup-restore-btn').addEventListener('click', () => $('#restore-file-input').click());
-    $('#restore-file-input').addEventListener('change', handleRestoreFile);
-    $('#save-gemini-key-btn').addEventListener('click', saveGeminiKey);
+    $('#backup-download-btn')?.addEventListener('click', exportBackupJson);
+    $('#backup-restore-btn')?.addEventListener('click', () => $('#restore-file-input')?.click());
+    $('#restore-file-input')?.addEventListener('change', handleRestoreFile);
+    $('#save-gemini-key-btn')?.addEventListener('click', saveGeminiKey);
 
     // OCR Modal
-    $('#close-ocr-modal').addEventListener('click', closeOcrScanner);
-    $('#ocr-modal').addEventListener('click', e => { if (e.target === $('#ocr-modal')) closeOcrScanner(); });
-    $('#ocr-camera-trigger').addEventListener('click', handleCameraTrigger);
-    $('#ocr-album-trigger').addEventListener('click', () => $('#ocr-file-input').click());
-    $('#ocr-file-input').addEventListener('change', handleFileInputOcr);
-    $('#ocr-confirm-btn').addEventListener('click', applyOcrResult);
-    $('#ocr-dec-btn').addEventListener('click', () => {
+    $('#close-ocr-modal')?.addEventListener('click', closeOcrScanner);
+    $('#ocr-modal')?.addEventListener('click', e => { if (e.target === $('#ocr-modal')) closeOcrScanner(); });
+    $('#ocr-camera-trigger')?.addEventListener('click', handleCameraTrigger);
+    $('#ocr-album-trigger')?.addEventListener('click', () => $('#ocr-file-input')?.click());
+    $('#ocr-file-input')?.addEventListener('change', handleFileInputOcr);
+    $('#ocr-confirm-btn')?.addEventListener('click', applyOcrResult);
+    $('#ocr-dec-btn')?.addEventListener('click', () => {
         const input = $('#ocr-scanned-value');
+        if (!input) return;
         const cur = parseInt(input.value, 10);
         if (!isNaN(cur) && cur > 0) {
             input.value = cur - 1;
             updateActiveChip(cur - 1);
         }
     });
-    $('#ocr-inc-btn').addEventListener('click', () => {
+    $('#ocr-inc-btn')?.addEventListener('click', () => {
         const input = $('#ocr-scanned-value');
+        if (!input) return;
         const cur = parseInt(input.value, 10) || 0;
         input.value = cur + 1;
         updateActiveChip(cur + 1);
     });
 
     // Setup
-    $('#setup-connect-btn').addEventListener('click', connectSupabase);
+    $('#setup-connect-btn')?.addEventListener('click', connectSupabase);
 
     // Check config
     const cfg = getConfig();
-    if (cfg) {
+    if (cfg && cfg.url && cfg.key) {
         initClient(cfg.url, cfg.key);
         bootApp();
     } else {
-        $('#setup-screen').classList.remove('hidden');
+        $('#setup-screen')?.classList.remove('hidden');
     }
 });
 
 async function connectSupabase() {
-    const url = $('#setup-url').value.trim();
-    const key = $('#setup-key').value.trim();
+    const url = $('#setup-url')?.value.trim();
+    const key = $('#setup-key')?.value.trim();
     const errEl = $('#setup-error');
-    errEl.textContent = '';
+    if (errEl) errEl.textContent = '';
 
-    if (!url || !key) { errEl.textContent = 'Vui lòng nhập đầy đủ URL và Key'; return; }
+    if (!url || !key) {
+        if (errEl) errEl.textContent = 'Vui lòng nhập đầy đủ URL và Key';
+        return;
+    }
 
     const btn = $('#setup-connect-btn');
-    btn.disabled = true;
-    btn.textContent = '⏳ Đang kết nối...';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Đang kết nối...';
+    }
 
     try {
         initClient(url, key);
         // Test connection
-        const { error } = await sb.from('settings').select('id').eq('id', 1).single();
+        const { error } = await sb.from('settings').select('id').eq('id', 1).maybeSingle();
         if (error) throw error;
 
         setConfig({ url, key });
-        $('#setup-screen').classList.add('hidden');
+        $('#setup-screen')?.classList.add('hidden');
         await bootApp();
     } catch (e) {
-        errEl.textContent = '❌ Không kết nối được. Kiểm tra URL và Key.\n' + (e.message || '');
+        if (errEl) errEl.textContent = '❌ Không kết nối được. Kiểm tra URL và Key.\n' + (e.message || '');
         sb = null;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '🚀 Kết Nối';
+        }
     }
-    btn.disabled = false;
-    btn.textContent = '🚀 Kết Nối';
 }
 
 async function bootApp() {
@@ -197,12 +220,13 @@ async function bootApp() {
         autoFillDates();
         renderEntry();
         const cfg = getConfig();
-        if (cfg) $('#connection-info').textContent = '✅ ' + cfg.url;
+        if (cfg && $('#connection-info')) $('#connection-info').textContent = '✅ ' + cfg.url;
     } catch (e) {
-        console.error(e);
-        toast('❌ Lỗi tải dữ liệu');
+        console.error('Lỗi bootApp:', e);
+        toast('❌ Lỗi tải dữ liệu: ' + (e.message || ''));
+    } finally {
+        showLoading(false);
     }
-    showLoading(false);
 }
 
 function autoFillDates() {
@@ -221,7 +245,18 @@ function autoFillDates() {
 // ========== ENTRY TAB ==========
 function renderEntry() {
     const container = $('#room-cards-container');
+    if (!container) return;
     container.innerHTML = '';
+
+    if (!APP.rooms || APP.rooms.length === 0) {
+        container.innerHTML = `
+            <div class="glass-card" style="text-align:center;padding:24px;color:var(--text2)">
+                <p style="font-size:1.05rem;margin-bottom:6px">⚠️ Chưa có dữ liệu phòng</p>
+                <p style="font-size:0.82rem">Đang kết nối lại hoặc hãy vào tab <b>⚙️ Cài đặt</b> để kiểm tra.</p>
+            </div>`;
+        return;
+    }
+
     APP.rooms.forEach(room => {
         const prev = getPrevReading(room.id);
         const card = document.createElement('div');
@@ -257,15 +292,17 @@ function renderEntry() {
         inp.addEventListener('input', () => {
             const rid = inp.dataset.room;
             const room = APP.rooms.find(r => r.id === rid);
-            const eOld = parseFloat($(`#eOld-${rid}`).value) || 0;
-            const eNew = parseFloat($(`#eNew-${rid}`).value) || 0;
-            const wOld = parseFloat($(`#wOld-${rid}`).value) || 0;
-            const wNew = parseFloat($(`#wNew-${rid}`).value) || 0;
+            const eOld = parseFloat($(`#eOld-${rid}`)?.value) || 0;
+            const eNew = parseFloat($(`#eNew-${rid}`)?.value) || 0;
+            const wOld = parseFloat($(`#wOld-${rid}`)?.value) || 0;
+            const wNew = parseFloat($(`#wNew-${rid}`)?.value) || 0;
             if (eNew > 0 || wNew > 0) {
                 const c = calcRoom({ elecOld: eOld, elecNew: eNew, waterOld: wOld, waterNew: wNew }, APP.settings, room);
-                $(`#preview-${rid}`).textContent = fmt(c.finalTotal) + ' đ';
+                const prevEl = $(`#preview-${rid}`);
+                if (prevEl) prevEl.textContent = fmt(c.finalTotal) + ' đ';
             } else {
-                $(`#preview-${rid}`).textContent = '';
+                const prevEl = $(`#preview-${rid}`);
+                if (prevEl) prevEl.textContent = '';
             }
         });
     });
