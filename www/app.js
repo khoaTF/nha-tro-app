@@ -67,10 +67,28 @@ async function loadAllData() {
         console.error('Lỗi tải rooms:', roomsRes.error);
         throw roomsRes.error;
     }
-    APP.rooms = (roomsRes.data || []).map(r => ({ id: r.id, name: r.name, roomFee: r.room_fee, sortOrder: r.sort_order }));
+    APP.rooms = (roomsRes.data || []).map(r => ({
+        id: r.id,
+        name: r.name,
+        roomFee: r.room_fee,
+        sortOrder: r.sort_order,
+        status: r.status || 'rented'
+    }));
     const s = settingsRes ? settingsRes.data : null;
     APP.settings = s ? { elecPrice: s.elec_price, waterPrice: s.water_price, waterPriceOver: s.water_price_over, garbageFee: s.garbage_fee } : { elecPrice: 3000, waterPrice: 11000, waterPriceOver: 12000, garbageFee: 10000 };
     APP.records = (recordsRes && recordsRes.data) || [];
+
+    // Tự động lưu cache offline trên máy (chống mất mát dữ liệu, mở app tức thì)
+    try {
+        localStorage.setItem('nhatro_offline_cache', JSON.stringify({
+            rooms: APP.rooms,
+            settings: APP.settings,
+            records: APP.records,
+            cachedAt: new Date().toISOString()
+        }));
+    } catch (e) {
+        console.warn('Lỗi ghi cache offline:', e);
+    }
 }
 
 function groupRecords(flat) {
@@ -214,6 +232,23 @@ async function connectSupabase() {
 }
 
 async function bootApp() {
+    // ⚡ Nạp tức thì từ bộ nhớ đệm (0ms - Mở app lên là thấy ngay, không bị chờ đợi)
+    try {
+        const cached = localStorage.getItem('nhatro_offline_cache');
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed.rooms && parsed.rooms.length > 0) {
+                APP.rooms = parsed.rooms;
+                APP.settings = parsed.settings || APP.settings;
+                APP.records = parsed.records || [];
+                autoFillDates();
+                renderEntry();
+            }
+        }
+    } catch (e) {
+        console.warn('Lỗi đọc cache offline:', e);
+    }
+
     showLoading(true);
     try {
         await loadAllData();
@@ -223,7 +258,9 @@ async function bootApp() {
         if (cfg && $('#connection-info')) $('#connection-info').textContent = '✅ ' + cfg.url;
     } catch (e) {
         console.error('Lỗi bootApp:', e);
-        toast('❌ Lỗi tải dữ liệu: ' + (e.message || ''));
+        if (!APP.rooms || APP.rooms.length === 0) {
+            toast('❌ Lỗi kết nối Supabase: ' + (e.message || ''));
+        }
     } finally {
         showLoading(false);
     }
@@ -257,7 +294,8 @@ function renderEntry() {
         return;
     }
 
-    APP.rooms.forEach(room => {
+    const activeRooms = (APP.rooms || []).filter(r => r.status !== 'inactive');
+    activeRooms.forEach(room => {
         const prev = getPrevReading(room.id);
         const hasPrev = (prev.elec > 0 || prev.water > 0);
         const card = document.createElement('div');
@@ -436,16 +474,31 @@ function togglePeriod(el) {
 }
 
 async function deletePeriod(startDate, endDate) {
-    if (!confirm('Xoá kỳ thu tiền này?')) return;
+    const confirmPrompt = prompt(`⚠️ XÁC NHẬN XOÁ KỲ: ${startDate} → ${endDate}\n\nĐể đảm bảo không bị xoá nhầm dữ liệu, vui lòng gõ chữ "XOA" vào ô bên dưới:`);
+    if (!confirmPrompt || confirmPrompt.trim().toUpperCase() !== 'XOA') {
+        toast('Đã huỷ thao tác xoá');
+        return;
+    }
     showLoading(true);
     try {
+        // 1. Sao lưu dự phòng vào thùng rác LocalStorage trước khi xoá trên Supabase
+        const toDelete = APP.records.filter(r => r.start_date === startDate && r.end_date === endDate);
+        const trash = JSON.parse(localStorage.getItem('nhatro_trash') || '[]');
+        trash.unshift({ startDate, endDate, deletedAt: new Date().toISOString(), records: toDelete });
+        if (trash.length > 20) trash.pop();
+        localStorage.setItem('nhatro_trash', JSON.stringify(trash));
+
+        // 2. Xoá trên Supabase
         const { error } = await sb.from('records').delete().eq('start_date', startDate).eq('end_date', endDate);
         if (error) throw error;
         await loadAllData();
         renderHistory();
         autoFillDates();
-        toast('🗑️ Đã xoá');
-    } catch (e) { toast('❌ Lỗi xoá'); console.error(e); }
+        toast('🗑️ Đã xoá kỳ này (Đã lưu bản sao trong Thùng rác dự phòng)');
+    } catch (e) {
+        console.error(e);
+        toast('❌ Lỗi xoá: ' + (e.message || ''));
+    }
     showLoading(false);
 }
 
@@ -687,12 +740,18 @@ function renderSettings() {
     const list = $('#room-list');
     list.innerHTML = '';
     APP.rooms.forEach(r => {
+        const isInactive = (r.status === 'inactive');
         const div = document.createElement('div');
-        div.className = 'room-item';
+        div.className = `room-item ${isInactive ? 'inactive' : ''}`;
         div.innerHTML = `
-            <span class="room-name">${r.name}</span>
+            <div style="flex:1;min-width:0">
+                <span class="room-name">${r.name}</span>
+                ${isInactive ? '<span style="font-size:0.72rem;color:var(--text3);margin-left:6px">(Tạm ngưng)</span>' : '<span style="font-size:0.72rem;color:#22c55e;margin-left:6px">● Đang thuê</span>'}
+            </div>
             <span class="room-fee">${fmt(r.roomFee)} đ</span>
-            <button class="delete-room" onclick="removeRoom('${r.id}')" title="Xoá phòng">×</button>`;
+            <button class="btn-toggle-room ${isInactive ? 'inactive' : 'active'}" onclick="toggleRoomStatus('${r.id}')" title="${isInactive ? 'Bấm để khôi phục phòng này' : 'Bấm để tạm ngưng phòng này mà không mất lịch sử'}">
+                ${isInactive ? '▶️ Khôi phục' : '⏸️ Tạm ngưng'}
+            </button>`;
         list.appendChild(div);
     });
     $('#set-elecPrice').value = APP.settings.elecPrice;
@@ -710,7 +769,7 @@ function renderSettings() {
         if (lastSnap) {
             tagEl.innerHTML = `<span>🕒 Snapshot tự động: <b>${lastSnap.startDate} → ${lastSnap.endDate}</b> (${snapshots.length} kỳ lưu trữ)</span>`;
         } else {
-            tagEl.innerHTML = `<span>🕒 Chưa có bản snapshot nào. Sẽ tự động lưu sau mỗi lần bạn bấm "Lưu Kỳ Này".</span>`;
+            tagEl.innerHTML = `<span>🕒 Snapshot tự động: Đang kích hoạt (Tự động lưu dự phòng sau mỗi kỳ)</span>`;
         }
     }
 }
@@ -724,29 +783,38 @@ async function addRoom() {
 
     const maxOrder = APP.rooms.reduce((m, r) => Math.max(m, r.sortOrder || 0), 0);
     try {
-        const { error } = await sb.from('rooms').insert({ name, room_fee: fee, sort_order: maxOrder + 1 });
+        const { error } = await sb.from('rooms').insert({ name, room_fee: fee, sort_order: maxOrder + 1, status: 'rented' });
         if (error) throw error;
         await loadAllData();
         nameInput.value = '';
         feeInput.value = '';
         renderSettings();
+        renderEntry();
         toast('✅ Đã thêm ' + name);
     } catch (e) { toast('❌ Lỗi thêm phòng'); console.error(e); }
 }
 
-async function removeRoom(id) {
+async function toggleRoomStatus(id) {
     const room = APP.rooms.find(r => r.id === id);
     if (!room) return;
-    const confirmMsg = `⚠️ CẢNH BÁO NGUY HIỂM:\nXoá "${room.name}" sẽ xoá vĩnh viễn phòng này và toàn bộ lịch sử số điện nước liên quan!\n\nBạn có chắc chắn muốn xoá không?`;
+    const isCurrentlyInactive = (room.status === 'inactive');
+    const confirmMsg = isCurrentlyInactive
+        ? `Kích hoạt lại "${room.name}" vào danh sách tính tiền trọ hàng tháng?`
+        : `Tạm ngưng "${room.name}" khỏi màn hình nhập liệu?\n\n(LƯU Ý: Toàn bộ lịch sử số điện nước cũ của phòng này vẫn được giữ nguyên vẹn 100%, an toàn tuyệt đối).`;
     if (!confirm(confirmMsg)) return;
+
     try {
-        const { error } = await sb.from('rooms').delete().eq('id', id);
+        const newStatus = isCurrentlyInactive ? 'rented' : 'inactive';
+        const { error } = await sb.from('rooms').update({ status: newStatus }).eq('id', id);
         if (error) throw error;
         await loadAllData();
         renderSettings();
         renderEntry();
-        toast('🗑️ Đã xoá ' + room.name);
-    } catch (e) { toast('❌ Lỗi xoá phòng'); console.error(e); }
+        toast(isCurrentlyInactive ? `▶️ Đã kích hoạt ${room.name}` : `⏸️ Đã tạm ngưng ${room.name}`);
+    } catch (e) {
+        console.error(e);
+        toast('❌ Lỗi cập nhật trạng thái phòng: ' + (e.message || ''));
+    }
 }
 
 async function saveSettings() {
@@ -1556,7 +1624,7 @@ function toggleEditOld(inputId) {
 // Globals for onclick handlers in HTML
 window.showReceipt = showReceipt;
 window.deletePeriod = deletePeriod;
-window.removeRoom = removeRoom;
+window.toggleRoomStatus = toggleRoomStatus;
 window.togglePeriod = togglePeriod;
 window.openOcrScanner = openOcrScanner;
 window.closeOcrScanner = closeOcrScanner;

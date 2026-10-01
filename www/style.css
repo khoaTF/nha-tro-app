@@ -69,10 +69,15 @@ input[type=number]{-moz-appearance:textfield}
 .small-btn{padding:10px 16px;background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);font-family:inherit;font-size:.82rem;font-weight:600;cursor:pointer;white-space:nowrap;-webkit-appearance:none}
 
 /* === ROOM LIST (Settings) === */
-.room-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(51,65,85,0.3);border-radius:10px;margin-bottom:8px}
+.room-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(51,65,85,0.3);border-radius:10px;margin-bottom:8px;transition:all .2s ease}
+.room-item.inactive{opacity:0.65;background:rgba(15,23,42,0.4);border:1px dashed rgba(148,163,184,0.2)}
 .room-item .room-name{flex:1;font-weight:600;font-size:.88rem;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .room-item .room-fee{font-size:.78rem;color:var(--accent);font-weight:600;flex-shrink:0}
-.room-item .delete-room{width:28px;height:28px;border:none;background:rgba(239,68,68,0.15);color:var(--danger);border-radius:50%;cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.btn-toggle-room{border:none;padding:6px 12px;border-radius:8px;font-size:.75rem;cursor:pointer;font-weight:600;font-family:inherit;transition:all .2s;flex-shrink:0}
+.btn-toggle-room.active{background:rgba(239,68,68,0.12);color:var(--danger)}
+.btn-toggle-room.active:hover{background:rgba(239,68,68,0.22)}
+.btn-toggle-room.inactive{background:rgba(34,197,94,0.15);color:#22c55e}
+.btn-toggle-room.inactive:hover{background:rgba(34,197,94,0.25)}
 .add-room-row{display:flex;gap:8px;margin-top:10px}
 .add-room-row input{flex:1;min-width:0;padding:10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:inherit;font-size:.85rem;outline:none;-webkit-appearance:none}
 

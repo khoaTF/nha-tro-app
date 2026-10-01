@@ -1,4 +1,4 @@
-name: Keep Supabase Alive
+name: Keep Supabase Alive & Auto-Backup
 
 on:
   schedule:
@@ -6,7 +6,8 @@ on:
   workflow_dispatch: # Cho phép bạn bấm chạy thủ công từ tab Actions trên Github
 
 jobs:
-  ping:
+  keepalive-and-backup:
+    name: Ping & Snapshot Backup
     runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase API
@@ -14,3 +15,34 @@ jobs:
           curl -X GET "https://gsbuxzftnpkuizaujjiv.supabase.co/rest/v1/" \
           -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" \
           -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc"
+
+      - name: Download Full Database Snapshot
+        run: |
+          mkdir -p db_backup
+          DATE=$(date +'%Y-%m-%d_%H-%M-%S')
+          echo "Bắt đầu sao lưu lúc: $DATE"
+
+          # 1. Tải danh sách phòng
+          curl -s "https://gsbuxzftnpkuizaujjiv.supabase.co/rest/v1/rooms?select=*&order=sort_order" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" > db_backup/rooms.json
+
+          # 2. Tải toàn bộ lịch sử điện nước
+          curl -s "https://gsbuxzftnpkuizaujjiv.supabase.co/rest/v1/records?select=*&order=created_at" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" > db_backup/records.json
+
+          # 3. Tải cài đặt đơn giá
+          curl -s "https://gsbuxzftnpkuizaujjiv.supabase.co/rest/v1/settings?select=*" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzYnV4emZ0bnBrdWl6YXVqaml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDU0NTIsImV4cCI6MjA5MzA4MTQ1Mn0.djsWFLZJkhEXtEqsq2eu53pxvGF6HaLvPq1uKO2xMnc" > db_backup/settings.json
+
+          echo "✅ Sao lưu hoàn tất. Kiểm tra dung lượng:"
+          ls -lh db_backup/
+
+      - name: Upload Backup Snapshot to GitHub Artifacts (90 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nhatro-database-snapshot
+          path: db_backup/
+          retention-days: 90
