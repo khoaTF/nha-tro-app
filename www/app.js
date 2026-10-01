@@ -259,16 +259,21 @@ function renderEntry() {
 
     APP.rooms.forEach(room => {
         const prev = getPrevReading(room.id);
+        const hasPrev = (prev.elec > 0 || prev.water > 0);
         const card = document.createElement('div');
         card.className = 'room-card';
         card.innerHTML = `
             <div class="room-card-header">
                 <h4>${room.name}</h4>
+                ${!hasPrev ? '<span class="new-room-tag">⚠️ Nhập số cũ đầu kỳ</span>' : ''}
                 <span class="room-preview" id="preview-${room.id}"></span>
             </div>
             <div class="meter-row">
                 <span class="meter-label">⚡</span>
-                <input type="number" class="readonly" id="eOld-${room.id}" value="${prev.elec}" readonly tabindex="-1">
+                <div class="old-input-wrap">
+                    <input type="number" class="${hasPrev ? 'readonly' : 'editable-old'}" id="eOld-${room.id}" value="${prev.elec}" ${hasPrev ? 'readonly tabindex="-1"' : 'placeholder="Số điện cũ"'} data-room="${room.id}" data-type="entry" title="${hasPrev ? 'Bấm nút ✏️ để sửa số cũ' : 'Nhập chỉ số điện cũ đầu kỳ'}">
+                    <button type="button" class="edit-old-btn" title="Bấm để sửa số điện cũ" onclick="toggleEditOld('eOld-${room.id}')">✏️</button>
+                </div>
                 <span class="arrow">→</span>
                 <div class="input-with-cam">
                     <input type="number" id="eNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
@@ -277,7 +282,10 @@ function renderEntry() {
             </div>
             <div class="meter-row">
                 <span class="meter-label">💧</span>
-                <input type="number" class="readonly" id="wOld-${room.id}" value="${prev.water}" readonly tabindex="-1">
+                <div class="old-input-wrap">
+                    <input type="number" class="${hasPrev ? 'readonly' : 'editable-old'}" id="wOld-${room.id}" value="${prev.water}" ${hasPrev ? 'readonly tabindex="-1"' : 'placeholder="Số nước cũ"'} data-room="${room.id}" data-type="entry" title="${hasPrev ? 'Bấm nút ✏️ để sửa số cũ' : 'Nhập chỉ số nước cũ đầu kỳ'}">
+                    <button type="button" class="edit-old-btn" title="Bấm để sửa số nước cũ" onclick="toggleEditOld('wOld-${room.id}')">✏️</button>
+                </div>
                 <span class="arrow">→</span>
                 <div class="input-with-cam">
                     <input type="number" id="wNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
@@ -1527,6 +1535,24 @@ function applyOcrResult() {
     }
 }
 
+function toggleEditOld(inputId) {
+    const input = $(`#${inputId}`);
+    if (!input) return;
+    if (input.hasAttribute('readonly')) {
+        input.removeAttribute('readonly');
+        input.classList.remove('readonly');
+        input.classList.add('editable-old');
+        input.focus();
+        input.select();
+        toast('✏️ Đã mở khoá: Bạn có thể sửa số cũ!');
+    } else {
+        input.setAttribute('readonly', 'true');
+        input.classList.add('readonly');
+        input.classList.remove('editable-old');
+        toast('🔒 Đã khoá lại số cũ');
+    }
+}
+
 // Globals for onclick handlers in HTML
 window.showReceipt = showReceipt;
 window.deletePeriod = deletePeriod;
@@ -1538,4 +1564,5 @@ window.applyOcrResult = applyOcrResult;
 window.exportBackupJson = exportBackupJson;
 window.exportHistoryCsv = exportHistoryCsv;
 window.toggleComparisonView = toggleComparisonView;
+window.toggleEditOld = toggleEditOld;
 
