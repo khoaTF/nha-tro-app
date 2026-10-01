@@ -728,13 +728,16 @@ async function addRoom() {
 
 async function removeRoom(id) {
     const room = APP.rooms.find(r => r.id === id);
-    if (!confirm(`Xoá ${room?.name}?`)) return;
+    if (!room) return;
+    const confirmMsg = `⚠️ CẢNH BÁO NGUY HIỂM:\nXoá "${room.name}" sẽ xoá vĩnh viễn phòng này và toàn bộ lịch sử số điện nước liên quan!\n\nBạn có chắc chắn muốn xoá không?`;
+    if (!confirm(confirmMsg)) return;
     try {
         const { error } = await sb.from('rooms').delete().eq('id', id);
         if (error) throw error;
         await loadAllData();
         renderSettings();
-        toast('🗑️ Đã xoá ' + (room?.name || ''));
+        renderEntry();
+        toast('🗑️ Đã xoá ' + room.name);
     } catch (e) { toast('❌ Lỗi xoá phòng'); console.error(e); }
 }
 
