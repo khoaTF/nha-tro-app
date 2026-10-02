@@ -2001,6 +2001,25 @@ function toggleEditOld(inputId) {
     }
 }
 
+async function forceAppUpdate() {
+    showLoading(true);
+    $('#loading-text').textContent = 'Đang dọn sạch cache và cập nhật phiên bản mới...';
+    try {
+        if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const reg of regs) await reg.unregister();
+        }
+        if ('caches' in window) {
+            const keys = await caches.keys();
+            for (const k of keys) await caches.delete(k);
+        }
+    } catch (e) {
+        console.warn('Lỗi dọn cache:', e);
+    }
+    // Chuyển hướng kèm timestamp để ép browser tải mới 100%
+    window.location.href = window.location.origin + window.location.pathname + '?reload=' + Date.now();
+}
+
 // Globals for onclick handlers in HTML
 window.showReceipt = showReceipt;
 window.deletePeriod = deletePeriod;
@@ -2013,4 +2032,11 @@ window.exportBackupJson = exportBackupJson;
 window.exportHistoryCsv = exportHistoryCsv;
 window.toggleComparisonView = toggleComparisonView;
 window.toggleEditOld = toggleEditOld;
+window.openEditPeriod = openEditPeriod;
+window.closeEditPeriod = closeEditPeriod;
+window.saveEditPeriod = saveEditPeriod;
+window.openRoomEdit = openRoomEdit;
+window.closeRoomEdit = closeRoomEdit;
+window.saveRoomEdit = saveRoomEdit;
+window.forceAppUpdate = forceAppUpdate;
 
