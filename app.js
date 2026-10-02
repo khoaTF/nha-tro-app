@@ -40,8 +40,8 @@ function showLoading(show) {
 }
 
 function calcRoom(rd, settings, room) {
-    const elecUsed = (rd.elecNew || 0) - (rd.elecOld || 0);
-    const waterUsed = (rd.waterNew || 0) - (rd.waterOld || 0);
+    const elecUsed = Math.max(0, (rd.elecNew || 0) - (rd.elecOld || 0));
+    const waterUsed = Math.max(0, (rd.waterNew || 0) - (rd.waterOld || 0));
     const elecTotal = elecUsed * settings.elecPrice;
     let waterTotal;
     if (waterUsed <= 10) {
@@ -72,7 +72,11 @@ async function loadAllData() {
         name: r.name,
         roomFee: r.room_fee,
         sortOrder: r.sort_order,
-        status: r.status || 'rented'
+        status: r.status || 'rented',
+        tenantName: r.tenant_name || '',
+        tenantPhone: r.tenant_phone || '',
+        tenantStartDate: r.start_date || '',
+        deposit: r.deposit || 0
     }));
     const s = settingsRes ? settingsRes.data : null;
     APP.settings = s ? { elecPrice: s.elec_price, waterPrice: s.water_price, waterPriceOver: s.water_price_over, garbageFee: s.garbage_fee } : { elecPrice: 3000, waterPrice: 11000, waterPriceOver: 12000, garbageFee: 10000 };
@@ -156,6 +160,12 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#backup-restore-btn')?.addEventListener('click', () => $('#restore-file-input')?.click());
     $('#restore-file-input')?.addEventListener('change', handleRestoreFile);
     $('#save-gemini-key-btn')?.addEventListener('click', saveGeminiKey);
+    $('#close-room-edit-modal')?.addEventListener('click', closeRoomEdit);
+    $('#room-edit-modal')?.addEventListener('click', e => { if (e.target === $('#room-edit-modal')) closeRoomEdit(); });
+    $('#save-room-edit-btn')?.addEventListener('click', saveRoomEdit);
+    $('#close-edit-period-modal')?.addEventListener('click', closeEditPeriod);
+    $('#edit-period-modal')?.addEventListener('click', e => { if (e.target === $('#edit-period-modal')) closeEditPeriod(); });
+    $('#save-edit-period-btn')?.addEventListener('click', saveEditPeriod);
 
     // OCR Modal
     $('#close-ocr-modal')?.addEventListener('click', closeOcrScanner);
@@ -302,7 +312,10 @@ function renderEntry() {
         card.className = 'room-card';
         card.innerHTML = `
             <div class="room-card-header">
-                <h4>${room.name}</h4>
+                <div>
+                    <h4>${room.name}</h4>
+                    ${room.tenantName ? `<span style="font-size:0.75rem;color:var(--text2);display:block;margin-top:2px">👤 ${room.tenantName}</span>` : ''}
+                </div>
                 ${!hasPrev ? '<span class="new-room-tag">⚠️ Nhập số cũ đầu kỳ</span>' : ''}
                 <span class="room-preview" id="preview-${room.id}"></span>
             </div>
@@ -318,6 +331,7 @@ function renderEntry() {
                     <button type="button" class="cam-btn" title="Chụp ảnh công tơ điện" onclick="openOcrScanner('${room.id}', 'elec')">📷</button>
                 </div>
             </div>
+            <div class="val-box" id="eVal-${room.id}"></div>
             <div class="meter-row">
                 <span class="meter-label">💧</span>
                 <div class="old-input-wrap">
@@ -329,11 +343,12 @@ function renderEntry() {
                     <input type="number" id="wNew-${room.id}" placeholder="Số mới" data-room="${room.id}" data-type="entry">
                     <button type="button" class="cam-btn" title="Chụp ảnh đồng hồ nước" onclick="openOcrScanner('${room.id}', 'water')">📷</button>
                 </div>
-            </div>`;
+            </div>
+            <div class="val-box" id="wVal-${room.id}"></div>`;
         container.appendChild(card);
     });
 
-    // Live preview
+    // Live preview & Validation
     container.querySelectorAll('input[data-type="entry"]').forEach(inp => {
         inp.addEventListener('input', () => {
             const rid = inp.dataset.room;
@@ -342,6 +357,9 @@ function renderEntry() {
             const eNew = parseFloat($(`#eNew-${rid}`)?.value) || 0;
             const wOld = parseFloat($(`#wOld-${rid}`)?.value) || 0;
             const wNew = parseFloat($(`#wNew-${rid}`)?.value) || 0;
+
+            validateRoomInput(rid);
+
             if (eNew > 0 || wNew > 0) {
                 const c = calcRoom({ elecOld: eOld, elecNew: eNew, waterOld: wOld, waterNew: wNew }, APP.settings, room);
                 const prevEl = $(`#preview-${rid}`);
@@ -354,23 +372,133 @@ function renderEntry() {
     });
 }
 
+function toggleEditOld(inputId) {
+    const inp = $(`#${inputId}`);
+    if (!inp) return;
+    const btn = inp.parentElement?.querySelector('.edit-old-btn');
+    const isReadonly = inp.hasAttribute('readonly');
+    if (isReadonly) {
+        inp.removeAttribute('readonly');
+        inp.removeAttribute('tabindex');
+        inp.classList.remove('readonly');
+        inp.classList.add('editable-old');
+        if (btn) {
+            btn.textContent = '🔓';
+            btn.title = 'Đang mở khóa để sửa. Bấm để khóa lại';
+        }
+        inp.focus();
+        inp.select();
+        toast('✏️ Đã mở khóa sửa số cũ');
+    } else {
+        inp.setAttribute('readonly', 'true');
+        inp.setAttribute('tabindex', '-1');
+        inp.classList.remove('editable-old');
+        inp.classList.add('readonly');
+        if (btn) {
+            btn.textContent = '✏️';
+            btn.title = 'Bấm để sửa số cũ';
+        }
+    }
+}
+
+function validateRoomInput(rid) {
+    const eOldEl = $(`#eOld-${rid}`);
+    const eNewEl = $(`#eNew-${rid}`);
+    const wOldEl = $(`#wOld-${rid}`);
+    const wNewEl = $(`#wNew-${rid}`);
+    const eValEl = $(`#eVal-${rid}`);
+    const wValEl = $(`#wVal-${rid}`);
+
+    const eOld = parseFloat(eOldEl?.value) || 0;
+    const eNew = parseFloat(eNewEl?.value) || 0;
+    const wOld = parseFloat(wOldEl?.value) || 0;
+    const wNew = parseFloat(wNewEl?.value) || 0;
+
+    let hasError = false;
+
+    // Check Điện
+    if (eNewEl && eValEl) {
+        eNewEl.classList.remove('input-invalid', 'input-warning');
+        if (eNew > 0 && eNew < eOld) {
+            eNewEl.classList.add('input-invalid');
+            eValEl.innerHTML = `<span class="val-err">❌ Điện mới (${eNew}) < cũ (${eOld})!</span>`;
+            hasError = true;
+        } else if (eNew >= eOld && (eNew - eOld >= 400)) {
+            eNewEl.classList.add('input-warning');
+            eValEl.innerHTML = `<span class="val-warn">⚠️ Điện dùng cao: +${fmt(eNew - eOld)} kWh</span>`;
+        } else {
+            eValEl.innerHTML = '';
+        }
+    }
+
+    // Check Nước
+    if (wNewEl && wValEl) {
+        wNewEl.classList.remove('input-invalid', 'input-warning');
+        if (wNew > 0 && wNew < wOld) {
+            wNewEl.classList.add('input-invalid');
+            wValEl.innerHTML = `<span class="val-err">❌ Nước mới (${wNew}) < cũ (${wOld})!</span>`;
+            hasError = true;
+        } else if (wNew >= wOld && (wNew - wOld >= 35)) {
+            wNewEl.classList.add('input-warning');
+            wValEl.innerHTML = `<span class="val-warn">⚠️ Nước dùng cao: +${fmt(wNew - wOld)} m³</span>`;
+        } else {
+            wValEl.innerHTML = '';
+        }
+    }
+
+    return hasError;
+}
+
 async function savePeriod() {
     const startDate = $('#startDate').value.trim();
     const endDate = $('#endDate').value.trim();
     if (!startDate || !endDate) { toast('⚠️ Nhập ngày trước!'); return; }
 
     const rows = [];
+    const errors = [];
+    const warnings = [];
+
     APP.rooms.forEach(room => {
-        const eOld = parseFloat($(`#eOld-${room.id}`).value) || 0;
-        const eNew = parseFloat($(`#eNew-${room.id}`).value) || 0;
-        const wOld = parseFloat($(`#wOld-${room.id}`).value) || 0;
-        const wNew = parseFloat($(`#wNew-${room.id}`).value) || 0;
+        if (room.status === 'inactive') return;
+        const eOld = parseFloat($(`#eOld-${room.id}`)?.value) || 0;
+        const eNew = parseFloat($(`#eNew-${room.id}`)?.value) || 0;
+        const wOld = parseFloat($(`#wOld-${room.id}`)?.value) || 0;
+        const wNew = parseFloat($(`#wNew-${room.id}`)?.value) || 0;
+
         if (eNew > 0 || wNew > 0) {
+            // Kiểm tra lỗi số mới < số cũ
+            if (eNew > 0 && eNew < eOld) {
+                errors.push(`• ${room.name}: Điện mới (${eNew}) < cũ (${eOld})`);
+            }
+            if (wNew > 0 && wNew < wOld) {
+                errors.push(`• ${room.name}: Nước mới (${wNew}) < cũ (${wOld})`);
+            }
+
+            // Kiểm tra cảnh báo số tăng cao
+            if (eNew >= eOld && (eNew - eOld >= 400)) {
+                warnings.push(`• ${room.name}: Điện tăng cao +${fmt(eNew - eOld)} kWh`);
+            }
+            if (wNew >= wOld && (wNew - wOld >= 35)) {
+                warnings.push(`• ${room.name}: Nước tăng cao +${fmt(wNew - wOld)} m³`);
+            }
+
             rows.push({ start_date: startDate, end_date: endDate, room_id: room.id, elec_old: eOld, elec_new: eNew, water_old: wOld, water_new: wNew });
         }
     });
 
+    // 1. Chặn hoàn toàn nếu có số âm / số mới < số cũ
+    if (errors.length > 0) {
+        alert('🚫 KHÔNG THỂ LƯU DỮ LIỆU!\n\nPhát hiện sai sót nhập liệu (Số mới nhỏ hơn số cũ):\n' + errors.join('\n') + '\n\nVui lòng kiểm tra và sửa lại chỉ số đúng trên công tơ trước khi lưu.');
+        return;
+    }
+
     if (rows.length === 0) { toast('⚠️ Nhập số mới ít nhất 1 phòng!'); return; }
+
+    // 2. Cảnh báo nếu tiêu thụ tăng vọt bất thường
+    if (warnings.length > 0) {
+        const ok = confirm('⚠️ CẢNH BÁO TIÊU THỤ CAO BẤT THƯỜNG:\n\n' + warnings.join('\n') + '\n\nBạn có chắc chắn các chỉ số trên đã được ghi chính xác từ đồng hồ không?');
+        if (!ok) return;
+    }
 
     const btn = $('#save-period-btn');
     btn.disabled = true;
@@ -461,6 +589,7 @@ function renderHistory() {
         rooms.forEach(r => {
             if (rec.data[r.id]) html += `<button class="btn-receipt" onclick="showReceipt('${rec.startDate}','${rec.endDate}','${r.id}')">📋 ${r.name}</button>`;
         });
+        html += `<button class="btn-edit-period" onclick="openEditPeriod('${rec.startDate}','${rec.endDate}')">✏️ Sửa số</button>`;
         html += `<button class="btn-delete" onclick="deletePeriod('${rec.startDate}','${rec.endDate}')">🗑️ Xoá</button>`;
         html += `</div></div>`;
     });
@@ -502,6 +631,157 @@ async function deletePeriod(startDate, endDate) {
     showLoading(false);
 }
 
+let CURRENT_EDIT_PERIOD = null;
+
+function openEditPeriod(startDate, endDate) {
+    const periods = groupRecords(APP.records);
+    const period = periods.find(p => p.startDate === startDate && p.endDate === endDate);
+    if (!period) return;
+
+    CURRENT_EDIT_PERIOD = { startDate, endDate };
+    $('#edit-period-start').value = startDate;
+    $('#edit-period-end').value = endDate;
+
+    const container = $('#edit-period-rooms-container');
+    container.innerHTML = '';
+
+    const rooms = (APP.rooms || []).filter(r => r.status !== 'inactive' || period.data[r.id]);
+
+    rooms.forEach(room => {
+        const d = period.data[room.id] || { elecOld: 0, elecNew: 0, waterOld: 0, waterNew: 0 };
+        const card = document.createElement('div');
+        card.className = 'glass-card';
+        card.style.padding = '12px';
+        card.style.marginBottom = '10px';
+        card.innerHTML = `
+            <div style="font-weight:700;color:var(--accent);margin-bottom:8px;display:flex;justify-content:space-between">
+                <span>${room.name}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">
+                <div class="input-group" style="margin-bottom:0">
+                    <label style="font-size:0.7rem">⚡ Điện cũ</label>
+                    <input type="number" id="hist-eOld-${room.id}" value="${d.elecOld || 0}">
+                </div>
+                <div class="input-group" style="margin-bottom:0">
+                    <label style="font-size:0.7rem">⚡ Điện mới</label>
+                    <input type="number" id="hist-eNew-${room.id}" value="${d.elecNew || 0}">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="input-group" style="margin-bottom:0">
+                    <label style="font-size:0.7rem">💧 Nước cũ</label>
+                    <input type="number" id="hist-wOld-${room.id}" value="${d.waterOld || 0}">
+                </div>
+                <div class="input-group" style="margin-bottom:0">
+                    <label style="font-size:0.7rem">💧 Nước mới</label>
+                    <input type="number" id="hist-wNew-${room.id}" value="${d.waterNew || 0}">
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+
+    $('#edit-period-modal').classList.remove('hidden');
+}
+
+function closeEditPeriod() {
+    $('#edit-period-modal')?.classList.add('hidden');
+    CURRENT_EDIT_PERIOD = null;
+}
+
+async function saveEditPeriod() {
+    if (!CURRENT_EDIT_PERIOD) return;
+    const { startDate, endDate } = CURRENT_EDIT_PERIOD;
+
+    const periods = groupRecords(APP.records);
+    const period = periods.find(p => p.startDate === startDate && p.endDate === endDate);
+    if (!period) return;
+
+    const rooms = (APP.rooms || []).filter(r => r.status !== 'inactive' || period.data[r.id]);
+    const updates = [];
+    const errors = [];
+
+    rooms.forEach(room => {
+        const eOld = parseFloat($(`#hist-eOld-${room.id}`)?.value) || 0;
+        const eNew = parseFloat($(`#hist-eNew-${room.id}`)?.value) || 0;
+        const wOld = parseFloat($(`#hist-wOld-${room.id}`)?.value) || 0;
+        const wNew = parseFloat($(`#hist-wNew-${room.id}`)?.value) || 0;
+
+        if (eNew > 0 || wNew > 0) {
+            if (eNew > 0 && eNew < eOld) {
+                errors.push(`• ${room.name}: Điện mới (${eNew}) < cũ (${eOld})`);
+            }
+            if (wNew > 0 && wNew < wOld) {
+                errors.push(`• ${room.name}: Nước mới (${wNew}) < cũ (${wOld})`);
+            }
+            const existingRecord = period.data[room.id];
+            updates.push({
+                id: existingRecord ? existingRecord.recordId : undefined,
+                room_id: room.id,
+                start_date: startDate,
+                end_date: endDate,
+                elec_old: eOld,
+                elec_new: eNew,
+                water_old: wOld,
+                water_new: wNew
+            });
+        }
+    });
+
+    if (errors.length > 0) {
+        alert('🚫 KHÔNG THỂ LƯU CHỈ SỐ!\n\nPhát hiện sai sót (Số mới < số cũ):\n' + errors.join('\n') + '\n\nVui lòng kiểm tra lại!');
+        return;
+    }
+
+    if (updates.length === 0) {
+        toast('⚠️ Không có chỉ số nào để lưu');
+        return;
+    }
+
+    const btn = $('#save-edit-period-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang lưu...';
+
+    showLoading(true);
+    try {
+        for (const row of updates) {
+            if (row.id) {
+                const { error } = await sb.from('records').update({
+                    elec_old: row.elec_old,
+                    elec_new: row.elec_new,
+                    water_old: row.water_old,
+                    water_new: row.water_new
+                }).eq('id', row.id);
+                if (error) throw error;
+            } else {
+                const { error } = await sb.from('records').insert({
+                    room_id: row.room_id,
+                    start_date: row.start_date,
+                    end_date: row.end_date,
+                    elec_old: row.elec_old,
+                    elec_new: row.elec_new,
+                    water_old: row.water_old,
+                    water_new: row.water_new
+                });
+                if (error) throw error;
+            }
+        }
+
+        await loadAllData();
+        renderHistory();
+        renderEntry();
+        closeEditPeriod();
+        toast('✅ Đã cập nhật chỉ số kỳ ' + startDate + ' → ' + endDate);
+    } catch (e) {
+        console.error(e);
+        toast('❌ Lỗi lưu cập nhật: ' + (e.message || ''));
+    } finally {
+        showLoading(false);
+        btn.disabled = false;
+        btn.textContent = '💾 Cập Nhật Chỉ Số';
+    }
+}
+
 // ========== RECEIPT ==========
 function showReceipt(startDate, endDate, roomId) {
     const room = APP.rooms.find(r => r.id === roomId);
@@ -517,7 +797,13 @@ function showReceipt(startDate, endDate, roomId) {
     const area = $('#receipt-capture-area');
     area.innerHTML = `
         <table class="receipt-table">
-            <tr><td class="r-date">${startDate}</td><th colspan="2" class="r-room">${room.name}</th></tr>
+            <tr>
+                <td class="r-date">${startDate}</td>
+                <th colspan="2" class="r-room">
+                    ${room.name}
+                    ${room.tenantName ? `<div style="font-size:0.78rem;font-weight:600;color:#1e40af;margin-top:3px">👤 Khách: ${room.tenantName} ${room.tenantPhone ? `• 📞 ${room.tenantPhone}` : ''}</div>` : ''}
+                </th>
+            </tr>
             <tr><td class="r-date r-border-heavy">${endDate}</td><th class="r-service">Điện</th><th class="r-service">Nước</th></tr>
             <tr><td>Số mới</td><td>${fmt(d.elecNew)}</td><td>${fmt(d.waterNew)}</td></tr>
             <tr><td>Số cũ</td><td>${fmt(d.elecOld)}</td><td>${fmt(d.waterOld)}</td></tr>
@@ -534,7 +820,7 @@ function showReceipt(startDate, endDate, roomId) {
             <p class="indent">Nước trên 10m³ : ${fmt(APP.settings.waterPriceOver)} vnđ/m³</p>
             <p>+ Tiền phòng : ${fmt(room.roomFee)} vnđ/tháng</p>
         </div>`;
-    area.dataset.roomName = room.name;
+    area.dataset.roomName = room.name + (room.tenantName ? `_${room.tenantName}` : '');
     area.dataset.endDate = endDate;
     $('#receipt-modal').classList.remove('hidden');
 }
@@ -745,13 +1031,25 @@ function renderSettings() {
         div.className = `room-item ${isInactive ? 'inactive' : ''}`;
         div.innerHTML = `
             <div style="flex:1;min-width:0">
-                <span class="room-name">${r.name}</span>
-                ${isInactive ? '<span style="font-size:0.72rem;color:var(--text3);margin-left:6px">(Tạm ngưng)</span>' : '<span style="font-size:0.72rem;color:#22c55e;margin-left:6px">● Đang thuê</span>'}
+                <div style="display:flex;align-items:center;gap:6px">
+                    <span class="room-name">${r.name}</span>
+                    <span class="room-fee">${fmt(r.roomFee)} đ</span>
+                    ${isInactive ? '<span style="font-size:0.7rem;color:var(--text3)">(Tạm ngưng)</span>' : '<span style="font-size:0.7rem;color:#22c55e">● Đang thuê</span>'}
+                </div>
+                <div class="room-item-details">
+                    <span>👤 ${r.tenantName || '<i style="color:var(--text3)">Chưa có tên khách</i>'}</span>
+                    ${r.tenantPhone ? `<span>📞 ${r.tenantPhone}</span>` : ''}
+                    ${r.deposit ? `<span>💰 Cọc: ${fmt(r.deposit)} đ</span>` : ''}
+                </div>
             </div>
-            <span class="room-fee">${fmt(r.roomFee)} đ</span>
-            <button class="btn-toggle-room ${isInactive ? 'inactive' : 'active'}" onclick="toggleRoomStatus('${r.id}')" title="${isInactive ? 'Bấm để khôi phục phòng này' : 'Bấm để tạm ngưng phòng này mà không mất lịch sử'}">
-                ${isInactive ? '▶️ Khôi phục' : '⏸️ Tạm ngưng'}
-            </button>`;
+            <div class="room-actions">
+                <button class="btn-edit-room" onclick="openRoomEdit('${r.id}')" title="Sửa tên phòng, khách thuê, giá tiền">
+                    ✏️ Sửa
+                </button>
+                <button class="btn-toggle-room ${isInactive ? 'inactive' : 'active'}" onclick="toggleRoomStatus('${r.id}')" title="${isInactive ? 'Bấm để khôi phục phòng này' : 'Bấm để tạm ngưng phòng này mà không mất lịch sử'}">
+                    ${isInactive ? '▶️' : '⏸️'}
+                </button>
+            </div>`;
         list.appendChild(div);
     });
     $('#set-elecPrice').value = APP.settings.elecPrice;
@@ -814,6 +1112,88 @@ async function toggleRoomStatus(id) {
     } catch (e) {
         console.error(e);
         toast('❌ Lỗi cập nhật trạng thái phòng: ' + (e.message || ''));
+    }
+}
+
+function openRoomEdit(id) {
+    const room = APP.rooms.find(r => r.id === id);
+    if (!room) return;
+    $('#edit-room-id').value = room.id;
+    $('#edit-room-name').value = room.name || '';
+    $('#edit-room-fee').value = room.roomFee || 700000;
+    $('#edit-tenant-name').value = room.tenantName || '';
+    $('#edit-tenant-phone').value = room.tenantPhone || '';
+    $('#edit-tenant-start').value = room.tenantStartDate || '';
+    $('#edit-tenant-deposit').value = room.deposit || '';
+    $('#room-edit-title').textContent = `👤 Sửa Thông Tin ${room.name}`;
+    $('#room-edit-modal').classList.remove('hidden');
+}
+
+function closeRoomEdit() {
+    $('#room-edit-modal')?.classList.add('hidden');
+}
+
+async function saveRoomEdit() {
+    const id = $('#edit-room-id').value;
+    const name = $('#edit-room-name').value.trim();
+    const roomFee = parseFloat($('#edit-room-fee').value) || 700000;
+    const tenantName = $('#edit-tenant-name').value.trim();
+    const tenantPhone = $('#edit-tenant-phone').value.trim();
+    const tenantStartDate = $('#edit-tenant-start').value.trim();
+    const deposit = parseFloat($('#edit-tenant-deposit').value) || 0;
+
+    if (!name) { toast('⚠️ Vui lòng nhập tên phòng!'); return; }
+
+    const btn = $('#save-room-edit-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang lưu...';
+
+    try {
+        const updatePayload = {
+            name,
+            room_fee: roomFee,
+            tenant_name: tenantName,
+            tenant_phone: tenantPhone,
+            start_date: tenantStartDate,
+            deposit: deposit
+        };
+
+        const { error } = await sb.from('rooms').update(updatePayload).eq('id', id);
+        if (error) {
+            console.warn('Supabase chưa có cột tenant, lưu fallback name/fee:', error);
+            const { fallbackErr } = await sb.from('rooms').update({ name, room_fee: roomFee }).eq('id', id);
+            if (fallbackErr) throw fallbackErr;
+        }
+
+        const room = APP.rooms.find(r => r.id === id);
+        if (room) {
+            room.name = name;
+            room.roomFee = roomFee;
+            room.tenantName = tenantName;
+            room.tenantPhone = tenantPhone;
+            room.tenantStartDate = tenantStartDate;
+            room.deposit = deposit;
+        }
+
+        try {
+            localStorage.setItem('nhatro_offline_cache', JSON.stringify({
+                rooms: APP.rooms,
+                settings: APP.settings,
+                records: APP.records,
+                cachedAt: new Date().toISOString()
+            }));
+        } catch (e) {}
+
+        closeRoomEdit();
+        renderSettings();
+        renderEntry();
+        toast('✅ Đã lưu thông tin phòng & khách thuê!');
+    } catch (e) {
+        console.error(e);
+        toast('❌ Lỗi cập nhật: ' + (e.message || ''));
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 Lưu Thông Tin';
     }
 }
 

@@ -153,6 +153,72 @@
             </div>
         </div>
 
+        <!-- ROOM & TENANT EDIT MODAL -->
+        <div id="room-edit-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="room-edit-title">👤 Thông Tin Phòng & Khách Thuê</h2>
+                    <button id="close-room-edit-modal" class="close-btn">&times;</button>
+                </div>
+                <input type="hidden" id="edit-room-id">
+                <div class="input-group">
+                    <label>Tên phòng</label>
+                    <input type="text" id="edit-room-name" placeholder="Ví dụ: Phòng 1">
+                </div>
+                <div class="input-group">
+                    <label>Tiền thuê phòng (vnđ/tháng)</label>
+                    <input type="number" id="edit-room-fee" placeholder="700000">
+                </div>
+                <div class="input-group">
+                    <label>Họ và tên khách thuê</label>
+                    <input type="text" id="edit-tenant-name" placeholder="Ví dụ: Nguyễn Văn A">
+                </div>
+                <div class="input-group">
+                    <label>Số điện thoại khách (Zalo)</label>
+                    <input type="text" id="edit-tenant-phone" placeholder="090...">
+                </div>
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Ngày vào ở</label>
+                        <input type="text" id="edit-tenant-start" placeholder="DD/MM/YYYY">
+                    </div>
+                    <div class="input-group">
+                        <label>Tiền cọc (vnđ)</label>
+                        <input type="number" id="edit-tenant-deposit" placeholder="0">
+                    </div>
+                </div>
+                <div class="modal-actions" style="margin-top:14px">
+                    <button id="save-room-edit-btn" class="primary-btn" style="margin-top:0">💾 Lưu Thông Tin</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- EDIT PERIOD MODAL -->
+        <div id="edit-period-modal" class="modal hidden">
+            <div class="modal-content" style="max-height:92vh">
+                <div class="modal-header">
+                    <h2 id="edit-period-title">✏️ Sửa Chỉ Số Kỳ Này</h2>
+                    <button id="close-edit-period-modal" class="close-btn">&times;</button>
+                </div>
+                <div class="input-row" style="margin-bottom:12px">
+                    <div class="input-group">
+                        <label>Từ ngày</label>
+                        <input type="text" id="edit-period-start" readonly class="readonly">
+                    </div>
+                    <div class="input-group">
+                        <label>Đến ngày</label>
+                        <input type="text" id="edit-period-end" readonly class="readonly">
+                    </div>
+                </div>
+                <div id="edit-period-rooms-container" style="max-height:55vh;overflow-y:auto;padding-right:4px">
+                    <!-- Danh sách các phòng -->
+                </div>
+                <div class="modal-actions" style="margin-top:14px">
+                    <button id="save-edit-period-btn" class="primary-btn" style="margin-top:0">💾 Cập Nhật Chỉ Số</button>
+                </div>
+            </div>
+        </div>
+
         <!-- OCR SCANNER MODAL -->
         <div id="ocr-modal" class="modal hidden">
             <div class="modal-content ocr-modal-content">
@@ -204,7 +270,7 @@
         <!-- TOAST -->
         <div id="toast" class="toast hidden"></div>
     </div>
-    <script src="app.js?v=9"></script>
+    <script src="app.js?v=11"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(e => console.log('SW error:', e));
